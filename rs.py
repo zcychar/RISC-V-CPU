@@ -24,11 +24,10 @@ class ReservationStation(Module):
     def build(
         self,
         in_valid_from_rob: Array,
-        # pos_from_rob: Array,
         in_index_from_rob: Array,
         value_from_rob: Array,
         rob: Module,
-        # lsq: Module,
+        lsq: Module,
         ifetch_continue_flag: Array,
     ):
         (
@@ -107,13 +106,14 @@ class ReservationStation(Module):
         is_branch_array = RegArray(Bits(1), RS_SIZE)
         reorder_array = RegArray(Bits(32), 32)
         reorder_busy_array = RegArray(Bits(1), 32)
+        lsq_poses_array = RegArray(Bits(32), RS_SIZE)
+        lsq_pos = RegArray(Bits(32), 1)
 
-        # commit from ROB
         new_val = in_valid_from_rob[0].select(
             value_from_rob[0], Bits(32)(0)
         )
-        new_val = (in_index_from_rob[0] == Bits(32)(0)).select(
-            new_val, Bits(32)(0)
+        new_val = (rd_array[in_index_from_rob[0]] == Bits(32)(0)).select(
+            Bits(32)(0), new_val
         )
 
         write_port_3 = [RSWritePort() for i in range(RS_SIZE)]
@@ -190,6 +190,7 @@ class ReservationStation(Module):
                 
         write_port_2 = RSWritePort()
 
+        # Append new entry
         with Condition(has_entry_from_d):
             newly_append_ind = newly_append_index[0].bitcast(Int(32))
             newly_append_index[0] = (newly_append_ind + Int(32)(1)) & Int(32)(
@@ -221,6 +222,17 @@ class ReservationStation(Module):
 
             (dispatched_array & write_port_2)[newly_append_ind] = Bits(1)(0)
             rob_dest_array[newly_append_ind] = pos_in_rob[0]
+
+            with Condition(memory_from_d != Bits(2)(0)):  # Load/Store
+                lsq_poses_array[newly_append_ind] = lsq_pos[0]
+                lsq_pos[0] = (lsq_pos[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
+                    Bits(32)
+                )
+                log(
+                    "RS entry index {} assigned LSQ position {}",
+                    newly_append_ind,
+                    lsq_pos[0].bitcast(Int(32)),
+                )
 
             with Condition(rs1_valid_from_d):
                 vj_valid_array[newly_append_ind] = Bits(1)(1)
@@ -388,4 +400,18 @@ class ReservationStation(Module):
             is_auipc_from_rs=is_auipc_array[dispatch_index],
             is_lui_from_rs=is_lui_array[dispatch_index],
             is_branch_from_rs=is_branch_array[dispatch_index],
+        )
+
+        # Send to LSQ
+        lsq_out_flag = has_selected & (memory_array[dispatch_index] != Bits(2)(0))
+        with Condition(lsq_out_flag):
+            log("Dispatching RS entry {} to LSQ", dispatch_index)
+        lsq.async_called(
+            has_entry_from_rs=lsq_out_flag,
+            rs1_val_from_rs=vj_array[dispatch_index],
+            rs2_val_from_rs=vk_array[dispatch_index],
+            imm_val_from_rs=imm_array[dispatch_index],
+            memory_from_rs=memory_array[dispatch_index],
+            pos_from_rs=lsq_poses_array[dispatch_index],
+            rob_dest_from_rs=rob_dest_array[dispatch_index],
         )

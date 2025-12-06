@@ -3,9 +3,11 @@ from instruction import *
 
 ROB_SIZE = 32
 
+
 class ROBWritePort(Module):
     def __init__(self):
         super().__init__(ports={})
+
 
 class ROB(Module):
     def __init__(self):
@@ -47,8 +49,10 @@ class ROB(Module):
         alu_valid_from_alu: Array,
         alu_value_from_alu: Array,
         rob_index_from_alu: Array,
+        in_valid_from_lsq: Array,
+        value_from_dcache: Array,
+        rob_dest_from_lsq: Array,
     ):
-        log("ROB is working...")
         pos = RegArray(Bits(32), 1)
 
         # ROB table
@@ -94,38 +98,48 @@ class ROB(Module):
             is_branch_from_rs,
         ) = self.pop_all_ports(False)
 
-
         # receive from ALU
-        write_port_2 = ROBWritePort()
-        write_port_3 = ROBWritePort()
+        write_port_alu = ROBWritePort()
         with Condition(alu_valid_from_alu[0]):
             alu_idx = rob_index_from_alu[0]
-            (ready_array & write_port_2)[alu_idx] = Bits(1)(1)
-            (value_array & write_port_2)[alu_idx] = alu_value_from_alu[0]
+            (ready_array & write_port_alu)[alu_idx] = Bits(1)(1)
+            (value_array & write_port_alu)[alu_idx] = alu_value_from_alu[0]
             log(
                 "ROB: Received from ALU idx={}, value=0x{:08x}",
                 alu_idx,
                 alu_value_from_alu[0],
             )
 
+        # receive from LSQ
+        write_port_lsq = ROBWritePort()
+        with Condition(in_valid_from_lsq[0]):
+            lsq_idx = rob_dest_from_lsq[0] & Bits(32)(ROB_SIZE - 1)
+            (ready_array & write_port_lsq)[lsq_idx] = Bits(1)(1)
+            (value_array & write_port_lsq)[lsq_idx] = value_from_dcache[0]
+            log(
+                "ROB: Received from LSQ idx={}, value=0x{:08x}",
+                lsq_idx,
+                value_from_dcache[0],
+            )
 
         # commit head entry
         to_memory_flag = Bits(1)(0)
         revert_flag = Bits(1)(0)
-        with Condition(
-            busy_array[pos[0]] == Bits(1)(1) & ready_array[pos[0]] == Bits(1)(1)
-        ):
+        write_port_commit = ROBWritePort()
+        commit_flag = busy_array[pos[0]] & ready_array[pos[0]]
+        with Condition(commit_flag):
             log(
-                "ROB: Committing entry idx={}, dest={}, value={}",
+                "ROB: Committing entry rob_idx={}, dest={}, value={}, rs_idx={}",
                 pos[0],
                 dest_array[pos[0]],
                 value_array[pos[0]],
+                ind_array[pos[0]],
             )
             index_to_rs[0] = ind_array[pos[0]]
             head = pos[0]
             pos[0] = (head.bitcast(Int(32)) + Int(32)(1)).bitcast(Bits(32))
-            (busy_array & write_port_3)[head] = Bits(1)(0)
-            (ready_array & write_port_3)[head] = Bits(1)(0)
+            (busy_array & write_port_commit)[head] = Bits(1)(0)
+            (ready_array & write_port_commit)[head] = Bits(1)(0)
             with Condition(is_jal_from_rs_array[head] | is_jalr_from_rs_array[head]):
                 log("is_jal/jalr, value_to_rs[0] = {}", value_array[head])
                 value_to_rs[0] = pc_array[head] + Bits(32)(4)
@@ -141,6 +155,15 @@ class ROB(Module):
             with Condition(alu_valid_array[head]):
                 log("alu_type, value_to_rs[0] = {}", value_array[head])
                 value_to_rs[0] = value_array[head]
+
+            with Condition(memory_from_rs_array[head][0:0] == Bits(1)(1)):
+                log("load_type, value_to_rs[0] = {}", value_array[head])
+                value_to_rs[0] = value_array[head]
+
+            with Condition(memory_from_rs_array[head][1:1] == Bits(1)(1)):
+                log("store_type")
+                value_to_rs[0] = Bits(32)(0)
+
             with Condition(is_branch_from_rs_array[head]):
                 to_if_flag = Bits(1)(1)
                 predict_result = ~(value_array[head][0:0] ^ jump_array[head][0:0])
@@ -178,15 +201,27 @@ class ROB(Module):
 
             out_valid_to_rs[0] = Bits(1)(1)
 
+        with Condition(~commit_flag):
+            out_valid_to_rs[0] = Bits(1)(0)
+            log(
+                "ROB: No commit, busy={}, ready={}, idx={}",
+                busy_array[pos[0]],
+                ready_array[pos[0]],
+                pos[0],
+            )
+
         # append new entry
         idx = (dest_from_rs & Bits(32)(ROB_SIZE - 1)).bitcast(Int(32))
+        # Currently we don't send memory instructions to ALU
+        alu_flag = (
+            alu_valid_from_rs & (memory_from_rs == Bits(2)(0)) & has_entry_from_rs
+        )
         with Condition(has_entry_from_rs):
-
             busy_array[idx] = Bits(1)(1)
             alu_array[idx] = alu_from_rs
             rs1_val_array[idx] = rs1_val_from_rs
             rs1_valid_array[idx] = rs1_valid_from_rs
-            alu_valid_array[idx] = alu_valid_from_rs
+            alu_valid_array[idx] = alu_flag
             memory_from_rs_array[idx] = memory_from_rs
             rs2_valid_array[idx] = rs2_valid_from_rs
             rs2_val_array[idx] = rs2_val_from_rs
@@ -201,13 +236,11 @@ class ROB(Module):
             is_lui_from_rs_array[idx] = is_lui_from_rs
             is_branch_from_rs_array[idx] = is_branch_from_rs
 
-            
-
-            ready_flag = ~alu_valid_from_rs & ~memory_from_rs[0:0]
+            ready_flag = ~alu_flag & ~memory_from_rs[0:0]
             (ready_array & self)[idx] = ready_flag.select(Bits(1)(1), Bits(1)(0))
 
             log(
-                "ROB: Appended entry idx={}, ind_rs={}, pc={}, rs1={}, rs2={}, imm={}, alu={},alu_valid={}, ready={}",
+                "ROB: Appended entry idx={}, ind_rs={}, pc={}, rs1={}, rs2={}, imm={}, alu={}, memory={}, alu_valid={}, ready={}",
                 idx,
                 ind_from_rs,
                 pc_from_rs,
@@ -215,21 +248,23 @@ class ROB(Module):
                 rs2_val_from_rs,
                 imm_from_rs,
                 alu_from_rs,
-                alu_valid_from_rs,
+                memory_from_rs,
+                alu_flag,
                 ready_flag,
             )
 
         # If the instruction is ALU type, send to ALU for execution
         alu_a = rs1_valid_from_rs.select(rs1_val_from_rs, pc_from_rs)
         alu_b = rs2_valid_from_rs.select(rs2_val_from_rs, imm_from_rs)
+
         alu.async_called(
             op_from_rob=alu_from_rs,
-            alu_valid_from_rob=alu_valid_from_rs & has_entry_from_rs,
+            alu_valid_from_rob=alu_flag,
             alu_a_from_rob=alu_a,
             alu_b_from_rob=alu_b,
             rob_idx_from_rob=idx.bitcast(Bits(32)),
         )
-        with Condition(alu_valid_from_rs & has_entry_from_rs):
+        with Condition(alu_flag):
             log(
                 "ROB: Sent to ALU idx={} alu_a={} alu_b={}, alu={}, alu_valid={}",
                 idx,

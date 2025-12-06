@@ -24,17 +24,21 @@ class ROBWritePort(Module):
 This module does not execute any logic, but just provides an additional write port to ROB. In this way, we can have multiple write ports to the same RegArray.
 Like this:
 ```python
-write_port_2 = ROBWritePort()
+write_port_alu = ROBWritePort()
 ```
 Use it by '&' operator:
 ```python
 with Condition(alu_valid_from_alu[0]):
     alu_idx = rob_index_from_alu[0]
-    (ready_array & write_port_2)[alu_idx] = Bits(1)(1)
-    (value_array & write_port_2)[alu_idx] = alu_value_from_alu[0]
+    (ready_array & write_port_alu)[alu_idx] = Bits(1)(1)
+    (value_array & write_port_alu)[alu_idx] = alu_value_from_alu[0]
     log(
         "ROB: Received from ALU idx={}, value=0x{:08x}",
         alu_idx,
         alu_value_from_alu[0],
     )
 ```
+
+## Store Instructions
+Why only sw is supported now?
+Because 'SRAM' module in assassyn only supports word-aligned access. To support byte/halfword access, we need to first read the whole word from memory, then modify the corresponding byte/halfword, and finally write back the whole word to memory. This requires additional logic to handle the read-modify-write cycle, which is not implemented yet.

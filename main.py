@@ -10,13 +10,13 @@ current_path = os.path.dirname(os.path.abspath(__file__))
 workspace = f"{current_path}/.workspace/"
 os.makedirs(workspace, exist_ok=True)
 
-# 导入模块
 sys.path.insert(0, current_path)
 from fetcher import Fetcher, FetcherImpl
 from decoder import Decoder
-from rs import ReservationStation, RS_SIZE
+from rs import ReservationStation
 from alu import ALU
 from rob import ROB
+from lsq import LSQ
 
 
 import argparse
@@ -30,6 +30,7 @@ class Driver(Module):
     def build(self, fetcher: Module):
         fetcher.async_called()
 
+DCACHE_DEPTH_LOG = 16
 
 def create_test_program(instructions=None):
     """创建测试程序 - 包含多种类型的指令"""
@@ -67,11 +68,9 @@ def build_and_run():
     sys_obj = SysBuilder("my_cpu")
 
     with sys_obj:
-        # 创建 Fetcher 模块
         fetcher = Fetcher()
         pc_reg, pc_addr = fetcher.build()
 
-        # 创建指令缓存 SRAM
         icache = SRAM(
             width=32, depth=1 << depth_log, init_file=f"{workspace}/workload.exe"
         )
@@ -79,17 +78,12 @@ def build_and_run():
 
         ifetch_continue_flag = RegArray(Bits(1), 1, initializer=[1])
 
-        reorder_array = RegArray(Bits(32), 32)
-        reorder_busy_array = RegArray(Bits(1), 32)
-
-        # 创建alu
         alu_value_to_rob = RegArray(Bits(32), 1)
         alu_valid_to_rob = RegArray(Bits(1), 1)
         alu_index_to_rob = RegArray(Bits(32), 1)
         alu = ALU()
         alu.build(alu_value_to_rob, alu_index_to_rob, alu_valid_to_rob)
 
-        # 创建ROB
         rob_bypass_valid_to_if = RegArray(Bits(1), 1)
         rob_bypass_pc_to_if = RegArray(Bits(32), 1)
         rob_bypass_is_jump_to_if = RegArray(Bits(1), 1)
@@ -98,6 +92,19 @@ def build_and_run():
         rob_bypass_index_to_rs = RegArray(Bits(32), 1)
         revert_flag_cdb = RegArray(Bits(1), 1)
 
+        dcache = SRAM(width=32, depth=1 << DCACHE_DEPTH_LOG, init_file=None)
+        dcache.name = "dcache"
+        
+        lsb_out_valid_to_rob = RegArray(Bits(1), 1)
+        lsb_rob_dest_to_rob = RegArray(Bits(32), 1)
+        lsq = LSQ()
+        lsq.build(
+            dcache=dcache,
+            depth_log=DCACHE_DEPTH_LOG,
+            out_valid_to_rob=lsb_out_valid_to_rob,
+            rob_dest_to_rob=lsb_rob_dest_to_rob,
+        )
+    
 
         rob = ROB()
         rob.build(
@@ -112,10 +119,12 @@ def build_and_run():
             alu_valid_from_alu=alu_valid_to_rob,
             alu_value_from_alu=alu_value_to_rob,
             rob_index_from_alu=alu_index_to_rob,
+            in_valid_from_lsq=lsb_out_valid_to_rob,
+            value_from_dcache=dcache.dout,
+            rob_dest_from_lsq=lsb_rob_dest_to_rob,
         )
 
 
-        # 创建RS
         rs = ReservationStation()
         rs.build(
             in_valid_from_rob=rob_bypass_valid_to_rs,
@@ -123,13 +132,12 @@ def build_and_run():
             value_from_rob=rob_bypass_value_to_rs,
             ifetch_continue_flag=ifetch_continue_flag,
             rob=rob,
+            lsq=lsq,
         )
 
-        # 创建 Decoder
         decoder = Decoder()
         decoder.build(icache.dout, rs)
 
-        # 创建 FetcherImpl downstream
         fetch_impl = FetcherImpl()
         fetch_impl.build(
             pc_addr_from_f=pc_addr,
@@ -199,7 +207,7 @@ def build_and_run():
 
 def main():
     parser = argparse.ArgumentParser(description="Run Toy CPU tests")
-    parser.add_argument("--test", choices=["default", "war", "waw", "raw"], default="default", help="Select test case")
+    parser.add_argument("--test", choices=["default", "war", "waw", "raw", "ls1"], default="default", help="Select test case")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -213,6 +221,8 @@ def main():
         instructions = waw_hazard_test()
     elif args.test == "raw":
         instructions = raw_hazard_test()
+    elif args.test == "ls1":
+        instructions = load_store_test_1()
 
     # 1. 创建测试程序
     print("\n[步骤 1] 创建测试程序")

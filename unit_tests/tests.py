@@ -47,3 +47,32 @@ def raw_hazard_test():
         nop(),
         nop()
     ]
+
+def load_store_test_1():
+    """
+    Load/Store Test
+    Test sw, lw, lh, lb instructions.
+    """
+    return [
+        addi(1, 0, 64),   # x1 = 64 (Base address)
+        addi(2, 0, 123),  # x2 = 123 (Value to store)
+        
+        # Store word: Mem[64] = 123. Base=x1, Src=x2.
+        sw(1, 2, 0),
+        
+        # Load word: x3 = Mem[64] = 123. Dest=x3, Base=x1.
+        lw(3, 1, 0),
+        
+        # Load half: x4 = Mem[64]. Dest=x4, Base=x1.
+        lh(4, 1, 0),
+        
+        # Load byte: x5 = Mem[64]. Dest=x5, Base=x1.
+        lb(5, 1, 0),
+
+        # Store word: Mem[68] = 123. Base=x1, Src=x2.
+        sw(1, 2, 4),
+        
+        nop(),
+        nop(),
+        nop()
+    ]
