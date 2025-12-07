@@ -13,7 +13,7 @@ Currently working on tomasulo algorithm
 - ALU: Arithmetic Logic Unit for executing instructions
 - LSQ: Load Store Queue for memory operations
 
-Only supports alu instructions and lw/sw right now.
+Only supports alu instructions, lw/sw and branches without load/store yet.
 ## Tests
 Unit tests are in the unit_tests/ directory. To run tests, execute main.py
 For example:
@@ -23,8 +23,9 @@ python main.py --test raw
 You could see log in the .workaspace/ directory.
 
 ## TODO
-- Add support for branch instructions
-    - The key challenge is to handle mispredictions and flush the pipeline correctly. (HELL)
+- Fix the store logic in LSQ
+    - Store instructions should be executed after ROB commit, but currently they are executed when they reach the head of LSQ
+- Consider separating load queue and store queue (maybe more efficient in flushing? Not sure)
 - Add support for more load/store instructions
     - lb, lh, lbu, lhu (Seems not hard)
     - sb, sh (Medium)

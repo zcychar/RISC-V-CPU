@@ -133,21 +133,24 @@ def build_and_run():
             ifetch_continue_flag=ifetch_continue_flag,
             rob=rob,
             lsq=lsq,
+            revert_flag_cdb=revert_flag_cdb,
         )
 
         decoder = Decoder()
-        decoder.build(icache.dout, rs)
+        decoder.build(icache.dout, rs, revert_flag_cdb)
 
         fetch_impl = FetcherImpl()
         fetch_impl.build(
             pc_addr_from_f=pc_addr,
             pc_reg_from_f=pc_reg,
-            on_br_from_d=Bits(1)(0),  # 无分支
-            continue_from_e=Bits(1)(0),  # 无跳转
-            branch_pc_addr_from_e=Bits(32)(0),
+            on_br_from_d=Bits(1)(0),  # Not used currently
             icache=icache,
             depth_log=depth_log,
             decoder=decoder,
+            in_valid_from_rob=rob_bypass_valid_to_if,
+            updated_pc_from_rob=rob_bypass_pc_to_if,
+            is_jump_from_rob=rob_bypass_is_jump_to_if,
+            revert_flag_cdb=revert_flag_cdb,
         )
         # 创建 Driver
         driver = Driver()
@@ -159,8 +162,8 @@ def build_and_run():
     # 配置仿真参数
     conf = config(
         verilog=bool(utils.has_verilator()),  # 生成 Verilog
-        sim_threshold=30,  # 运行 30 个周期
-        idle_threshold=30,
+        sim_threshold=50,  # 运行 50 个周期
+        idle_threshold=50,
         resource_base="",
         fifo_depth=1,
     )
@@ -207,7 +210,7 @@ def build_and_run():
 
 def main():
     parser = argparse.ArgumentParser(description="Run Toy CPU tests")
-    parser.add_argument("--test", choices=["default", "war", "waw", "raw", "ls1"], default="default", help="Select test case")
+    parser.add_argument("--test", choices=["default", "war", "waw", "raw", "ls1", "br1"], default="default", help="Select test case")
     args = parser.parse_args()
 
     print("=" * 70)
@@ -223,7 +226,8 @@ def main():
         instructions = raw_hazard_test()
     elif args.test == "ls1":
         instructions = load_store_test_1()
-
+    elif args.test == "br1":
+        instructions = branch_test()
     # 1. 创建测试程序
     print("\n[步骤 1] 创建测试程序")
     create_test_program(instructions)

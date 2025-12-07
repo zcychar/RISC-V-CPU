@@ -13,7 +13,7 @@ class Decoder(Module):
         self.name = "D"
 
     @module.combinational
-    def build(self, inst_from_icache: Array, rs: Module):
+    def build(self, inst_from_icache: Array, rs: Module, revert_flag_cdb: Array):
         inst_valid_from_fi, fetch_pc_from_fi = self.pop_all_ports(False)
 
         inst = inst_from_icache[0].bitcast(Bits(32))
@@ -44,22 +44,14 @@ class Decoder(Module):
             signals.is_pc_calc.bitcast(UInt(1)),
         )
 
+        with Condition(revert_flag_cdb[0]):
+            log(
+                "Received revert signal, skipping decode"
+            )
+            
         rs.async_called(
             decode_signals=signals,
-            has_entry_from_d=inst_valid_from_fi,
-            # alu_from_d=signals.alu,
-            # alu_valid_from_d=signals.alu_valid,
-            # memory_from_d=signals.memory,
-            # memory_oper_size_from_d=signals.mem_oper_size,
-            # memory_oper_signed_from_d=signals.mem_oper_signed,
-            # rd_from_d=signals.rd,
-            # rd_valid_from_d=signals.rd_valid,
-            # rs1_from_d=signals.rs1,
-            # rs1_valid_from_d=signals.rs1_valid,
-            # rs2_from_d=signals.rs2,
-            # rs2_valid_from_d=signals.rs2_valid,
-            # imm_from_d=signals.imm,
-            # imm_valid_from_d=signals.imm_valid,
+            has_entry_from_d=inst_valid_from_fi & (~revert_flag_cdb[0]),
             pc_from_d=fetch_pc_from_fi,
             jump_from_d=Bits(1)(0),
         )
@@ -94,9 +86,9 @@ def decode_logic(inst):
         eqs[name] = eq
         supported |= eq
 
-        alu |= signal.alu & eq
-        cond |= signal.cond & eq
-        flip |= signal.flip & eq
+        alu |= eq.select(signal.alu, Bits(RV32I_ALU.CNT)(0))
+        cond |= eq.select(signal.cond, Bits(RV32I_ALU.CNT)(0))
+        flip |= eq.select(signal.flip, Bits(1)(0))
 
         pad = 6 - len(name)
         pad = " " * pad

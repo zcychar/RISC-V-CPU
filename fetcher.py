@@ -26,17 +26,32 @@ class FetcherImpl(Downstream):
         pc_reg_from_f: Array,
         pc_addr_from_f: Value,
         on_br_from_d: Value,
-        continue_from_e: Value,
-        branch_pc_addr_from_e,
         icache: SRAM,
         depth_log: int,
         decoder: Decoder,
+        in_valid_from_rob: Array,
+        updated_pc_from_rob: Array,
+        is_jump_from_rob: Array,
+        revert_flag_cdb: Array,
     ):
+        """
+        Currently when facing branch, we just continue fetching sequentially.
+        If mispredicted, ROB will redirect the PC later. And other modules
+        will handle the flush.
+        Thus here 'on_br_from_d', 'is_jump_from_rob', 'should_fetch' is not
+        used, but reserved for future improvement.
+        """
         fetch_state = RegArray(Bits(1), 1, initializer=[1])
 
-        fetch_addr = continue_from_e.select(branch_pc_addr_from_e, pc_addr_from_f)
+        fetch_addr = revert_flag_cdb[0].select(updated_pc_from_rob[0], pc_addr_from_f)
+        with Condition(revert_flag_cdb[0]):
+            log(
+                "Fetcher received redirect PC=0x{:08x}, is_jump={}",
+                updated_pc_from_rob[0],
+                is_jump_from_rob[0].bitcast(UInt(1)),
+            )
 
-        should_fetch = (fetch_state[0] & (~on_br_from_d)) | continue_from_e
+        should_fetch = fetch_state[0]
 
         next_pc = (fetch_addr.bitcast(UInt(32)) + UInt(32)(4)).bitcast(Bits(32))
 

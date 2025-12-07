@@ -76,3 +76,43 @@ def load_store_test_1():
         nop(),
         nop()
     ]
+
+def branch_test():
+    """
+    Branch Test
+    Test beq, bne, blt, bge.
+    """
+    return [
+        addi(1, 0, 10),   # x1 = 10
+        addi(2, 0, 10),   # x2 = 10
+        
+        # Test beq (Taken)
+        beq(1, 2, 8),     # if x1 == x2, PC += 8. Skips next instruction.
+        addi(3, 0, 0xBAD),# x3 = 0xBAD (Should be skipped)
+        addi(3, 0, 1),    # x3 = 1 (Target)
+        
+        addi(4, 0, 20),   # x4 = 20
+        
+        # Test bne (Taken)
+        bne(1, 4, 8),     # if x1 != x4, PC += 8. Skips next.
+        addi(5, 0, 0xBAD),# x5 = 0xBAD (Should be skipped)
+        addi(5, 0, 1),    # x5 = 1 (Target)
+        
+        # Test blt (Taken)
+        blt(1, 4, 8),     # if x1 < x4 (10 < 20), PC += 8.
+        addi(6, 0, 0xBAD),# x6 = 0xBAD
+        addi(6, 0, 1),    # x6 = 1
+        
+        # Test bge (Taken)
+        bge(4, 1, 8),     # if x4 >= x1 (20 >= 10), PC += 8.
+        addi(7, 0, 0xBAD),# x7 = 0xBAD
+        addi(7, 0, 1),    # x7 = 1
+
+        # Test beq (Not Taken)
+        beq(1, 4, 8),     # if x1 == x4 (10 == 20) False.
+        addi(8, 0, 1),    # x8 = 1 (Should be executed)
+        
+        nop(),
+        nop(),
+        nop()
+    ]

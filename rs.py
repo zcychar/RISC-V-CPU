@@ -29,6 +29,7 @@ class ReservationStation(Module):
         rob: Module,
         lsq: Module,
         ifetch_continue_flag: Array,
+        revert_flag_cdb: Array,
     ):
         (
             signals,
@@ -104,6 +105,8 @@ class ReservationStation(Module):
         is_auipc_array = RegArray(Bits(1), RS_SIZE)
         is_lui_array = RegArray(Bits(1), RS_SIZE)
         is_branch_array = RegArray(Bits(1), RS_SIZE)
+        cond_array = RegArray(Bits(RV32I_ALU.CNT), RS_SIZE)
+        flip_array = RegArray(Bits(1), RS_SIZE)
         reorder_array = RegArray(Bits(32), 32)
         reorder_busy_array = RegArray(Bits(1), 32)
         lsq_poses_array = RegArray(Bits(32), RS_SIZE)
@@ -143,14 +146,16 @@ class ReservationStation(Module):
         newly_freed_flag = in_valid_from_rob[0].select(
             newly_freed_flag, Bits(1)(0)
         )
+        revert_flag = revert_flag_cdb[0]
         with Condition(in_valid_from_rob[0]):
             update_index = in_index_from_rob[0]
-            (busy_array & write_port_3[0])[update_index] = Bits(1)(0)
+            with Condition(~revert_flag):
+                (busy_array & write_port_3[0])[update_index] = Bits(1)(0)
             busy_entry_count[0] = (
                 busy_entry_count[0].bitcast(Int(32)) - Int(32)(1)
             ).bitcast(Bits(32))
             log(
-                "RS: Committing from ROB idx={}, value=0x{:08x}",
+                "Committing from ROB idx={}, value=0x{:08x}",
                 update_index,
                 new_val,
             )
@@ -186,12 +191,26 @@ class ReservationStation(Module):
                 rd_array[update_index],
                 new_val,
             )
+
+        revert_ports = [RSWritePort() for _ in range(RS_SIZE)]
+        with Condition(revert_flag):
+            log(
+                "Revert triggered, clearing all entries",
+            )
+            for i in range(RS_SIZE):
+                (busy_array & revert_ports[i])[i] = Bits(1)(0)
+            for i in range(32):
+                (reorder_busy_array & revert_ports[i])[i] = Bits(1)(0)
+
+            lsq_pos[0] = Bits(32)(0)
+            newly_append_index[0] = Bits(32)(0)
+            pos_in_rob[0] = Bits(32)(0)
                 
                 
         write_port_2 = RSWritePort()
 
         # Append new entry
-        with Condition(has_entry_from_d):
+        with Condition(has_entry_from_d & ~revert_flag):
             newly_append_ind = newly_append_index[0].bitcast(Int(32))
             newly_append_index[0] = (newly_append_ind + Int(32)(1)) & Int(32)(
                 RS_SIZE - 1
@@ -219,6 +238,8 @@ class ReservationStation(Module):
             is_auipc_array[newly_append_ind] = signals.is_auipc
             is_lui_array[newly_append_ind] = signals.is_lui
             is_branch_array[newly_append_ind] = signals.is_branch_inst
+            cond_array[newly_append_ind] = signals.cond
+            flip_array[newly_append_ind] = signals.flip
 
             (dispatched_array & write_port_2)[newly_append_ind] = Bits(1)(0)
             rob_dest_array[newly_append_ind] = pos_in_rob[0]
@@ -376,6 +397,7 @@ class ReservationStation(Module):
 
             has_selected = has_selected | entry_ready
 
+        has_selected = has_selected & ~revert_flag
         with Condition(has_selected):
             log("Dispatching RS entry {} to ROB", dispatch_index)
             dispatched_array[dispatch_index] = Bits(1)(1)
@@ -400,6 +422,8 @@ class ReservationStation(Module):
             is_auipc_from_rs=is_auipc_array[dispatch_index],
             is_lui_from_rs=is_lui_array[dispatch_index],
             is_branch_from_rs=is_branch_array[dispatch_index],
+            cond_from_rs=cond_array[dispatch_index],
+            flip_from_rs=flip_array[dispatch_index],
         )
 
         # Send to LSQ

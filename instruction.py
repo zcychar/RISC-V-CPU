@@ -36,7 +36,7 @@ class InstSignal:
         if alu is not None:
             self.alu = Bits(RV32I_ALU.CNT)(1 << alu)
 
-        self.cond = Bits(1)(0)
+        self.cond = Bits(RV32I_ALU.CNT)(0)
         self.flip = Bits(1)(0)
         if cond is not None:
             pred, flip = cond
