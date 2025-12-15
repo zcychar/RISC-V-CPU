@@ -91,5 +91,13 @@ def jal(rd, imm):
 def jalr(rd, rs1, imm):
     return encode_i_type(0b1100111, 0b000, rd, rs1, imm)
 
+def ebreak():
+    # ebreak: I-type with opcode=1110011, funct3=000, imm=000000000001
+    return encode_i_type(0b1110011, 0b000, 0, 0, 0b000000000001)
+
+def ecall():
+    # ecall: I-type with opcode=1110011, funct3=000, imm=000000000000
+    return encode_i_type(0b1110011, 0b000, 0, 0, 0b000000000000)
+
 def nop():
     return addi(0, 0, 0)

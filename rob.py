@@ -39,6 +39,7 @@ class ROB(Module):
         self,
         alu: Module,
         out_valid_to_rs: Array,
+        need_update_to_rs: Array,
         value_to_rs: Array,
         index_to_rs: Array,
         revert_flag_cdb: Array,
@@ -128,6 +129,9 @@ class ROB(Module):
                 | is_jalr_from_rs_array[pos[0]]
             )
             revert_flag_cdb[0] = revert_flag
+            need_update_to_rs[0] = commit_flag & ~(
+                is_branch_from_rs_array[pos[0]] | memory_from_rs_array[pos[0]][1:1]
+            )
             with Condition(commit_flag):
                 log(
                     "Committing entry rob_idx={}, dest={}, value=0x{:08x}, rs_idx={}",
@@ -141,7 +145,7 @@ class ROB(Module):
                 with Condition(~revert_flag):
                     # If revert triggered, clearing entries is handled later
                     write_1hot(busy_array_d, head, Bits(1)(0))
-                    pos[0] = (head.bitcast(Int(32)) + Int(32)(1)).bitcast(Bits(32))
+                    pos[0] = (head.bitcast(UInt(32)) + UInt(32)(1)) & Bits(32)(ROB_SIZE - 1)
                 write_1hot(ready_array_d, head, Bits(1)(0))
                 with Condition(
                     is_jal_from_rs_array[head] | is_jalr_from_rs_array[head]
@@ -277,9 +281,10 @@ class ROB(Module):
                     ),
                 )
                 log(
-                    "Received from ALU idx={}, value=0x{:08x}",
+                    "Received from ALU idx={}, value=0x{:08x}, flip={}",
                     alu_idx,
                     alu_value_from_alu[0],
+                    flip_from_rs_array[alu_idx],
                 )
 
             # receive from LSQ

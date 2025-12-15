@@ -221,4 +221,6 @@ def decode_logic(inst):
         is_auipc=eqs["auipc"],
         is_lui=eqs["lui"],
         is_branch_inst=is_type[BInst],
+        is_ebreak=eqs["ebreak"],
+        is_ecall=eqs["ecall"],
     )

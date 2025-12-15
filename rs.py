@@ -22,6 +22,7 @@ class ReservationStation(Module):
     def build(
         self,
         in_valid_from_rob: Array,
+        need_update_from_rob: Array,
         in_index_from_rob: Array,
         value_from_rob: Array,
         rob: Module,
@@ -76,8 +77,7 @@ class ReservationStation(Module):
         reg_file = RegArray(Bits(32), 32)
 
         # busy_array = RegArray(Bits(1), RS_SIZE, initializer=[0] * RS_SIZE)
-        busy_array_d = [RegArray(Bits(1), 1, initializer=[0])
-                        for _ in range(RS_SIZE)]
+        busy_array_d = [RegArray(Bits(1), 1, initializer=[0]) for _ in range(RS_SIZE)]
 
         busy_entry_count = RegArray(Bits(32), 1)
         # dispatched_array = RegArray(Bits(1), RS_SIZE)
@@ -110,6 +110,8 @@ class ReservationStation(Module):
         is_auipc_array = RegArray(Bits(1), RS_SIZE)
         is_lui_array = RegArray(Bits(1), RS_SIZE)
         is_branch_array = RegArray(Bits(1), RS_SIZE)
+        is_ebreak_array = RegArray(Bits(1), RS_SIZE)
+        is_ecall_array = RegArray(Bits(1), RS_SIZE)
         cond_array = RegArray(Bits(RV32I_ALU.CNT), RS_SIZE)
         flip_array = RegArray(Bits(1), RS_SIZE)
         # reorder_array = RegArray(Bits(32), 32)
@@ -123,9 +125,7 @@ class ReservationStation(Module):
         sq_poses_array = RegArray(Bits(32), RS_SIZE)
         sq_pos = RegArray(Bits(32), 1)
 
-        new_val = in_valid_from_rob[0].select(
-            value_from_rob[0], Bits(32)(0)
-        )
+        new_val = in_valid_from_rob[0].select(value_from_rob[0], Bits(32)(0))
         new_val = (rd_array[in_index_from_rob[0]] == Bits(32)(0)).select(
             Bits(32)(0), new_val
         )
@@ -135,13 +135,13 @@ class ReservationStation(Module):
         # Optimized logic to find the freed register
         # 1. Generate match mask in parallel
         for i in range(32):
-            is_match = (reorder_busy_array_d[i][0] & (
-                reorder_array_d[i][0] == update_index))
-            match_mask = match_mask | is_match.select(
-                Bits(32)(1 << i), Bits(32)(0))
+            is_match = reorder_busy_array_d[i][0] & (
+                reorder_array_d[i][0] == update_index
+            )
+            match_mask = match_mask | is_match.select(Bits(32)(1 << i), Bits(32)(0))
 
         # 2. Calculate flag
-        newly_freed_flag = (match_mask != Bits(32)(0))
+        newly_freed_flag = match_mask != Bits(32)(0)
 
         # 3. Calculate rd using select1hot
         possible_rds = [Bits(5)(i) for i in range(32)]
@@ -150,13 +150,11 @@ class ReservationStation(Module):
         raw_rd = safe_mask.select1hot(*possible_rds)
 
         newly_freed_rd = newly_freed_flag.select(raw_rd, Bits(5)(0))
-        newly_freed_rd = in_valid_from_rob[0].select(
-            newly_freed_rd, Bits(5)(0)
-        )
-        newly_freed_flag = in_valid_from_rob[0].select(
-            newly_freed_flag, Bits(1)(0)
-        )
+        newly_freed_rd = in_valid_from_rob[0].select(newly_freed_rd, Bits(5)(0))
+        newly_freed_flag = in_valid_from_rob[0].select(newly_freed_flag, Bits(1)(0))
         revert_flag = revert_flag_cdb[0]
+
+        # Commit from ROB
         with Condition(in_valid_from_rob[0]):
             update_index = in_index_from_rob[0]
             with Condition(~revert_flag):
@@ -169,38 +167,41 @@ class ReservationStation(Module):
                 update_index,
                 new_val,
             )
-            for i in range(RS_SIZE):
-                with Condition(
-                    busy_array_d[i][0]
-                    & (qj_array_d[i][0] == update_index)
-                ):
-                    vj_array_d[i][0] = new_val
-                    qj_array_d[i][0] = Q_DEFAULT
-                    log(
-                        "RS entry index {} received rs1 value 0x{:08x} from ROB entry {}",
-                        Bits(32)(i),
-                        new_val,
-                        update_index,
-                    )
-                with Condition(
-                    busy_array_d[i][0]
-                    & (qk_array_d[i][0] == update_index)
-                ):
-                    vk_array_d[i][0] = new_val
-                    qk_array_d[i][0] = Q_DEFAULT
-                    log(
-                        "RS entry index {} received rs2 value 0x{:08x} from ROB entry {}",
-                        Bits(32)(i),
-                        new_val,
-                        update_index,
-                    )
+            with Condition(
+                is_ebreak_array[update_index] | is_ecall_array[update_index]
+            ):
+                log(
+                    "EBREAK/ECALL instruction committed, finish simulation",
+                )
+                finish()
 
-            reg_file[rd_array[update_index]] = new_val
-            log(
-                "RegFile updated: x{:02} = 0x{:08x}",
-                rd_array[update_index],
-                new_val,
-            )
+            with Condition(need_update_from_rob[0]):
+                for i in range(RS_SIZE):
+                    with Condition(busy_array_d[i][0] & (qj_array_d[i][0] == update_index)):
+                        vj_array_d[i][0] = new_val
+                        qj_array_d[i][0] = Q_DEFAULT
+                        log(
+                            "RS entry index {} received rs1 value 0x{:08x} from ROB entry {}",
+                            Bits(32)(i),
+                            new_val,
+                            update_index,
+                        )
+                    with Condition(busy_array_d[i][0] & (qk_array_d[i][0] == update_index)):
+                        vk_array_d[i][0] = new_val
+                        qk_array_d[i][0] = Q_DEFAULT
+                        log(
+                            "RS entry index {} received rs2 value 0x{:08x} from ROB entry {}",
+                            Bits(32)(i),
+                            new_val,
+                            update_index,
+                        )
+
+                reg_file[rd_array[update_index]] = new_val
+                log(
+                    "RegFile updated: x{:02} = 0x{:08x}",
+                    rd_array[update_index],
+                    new_val,
+                )
 
         with Condition(revert_flag):
             log(
@@ -246,6 +247,8 @@ class ReservationStation(Module):
             is_auipc_array[newly_append_ind] = signals.is_auipc
             is_lui_array[newly_append_ind] = signals.is_lui
             is_branch_array[newly_append_ind] = signals.is_branch_inst
+            is_ebreak_array[newly_append_ind] = signals.is_ebreak
+            is_ecall_array[newly_append_ind] = signals.is_ecall
             cond_array[newly_append_ind] = signals.cond
             flip_array[newly_append_ind] = signals.flip
 
@@ -258,9 +261,7 @@ class ReservationStation(Module):
                     Bits(32)
                 )
                 lq_poses_array[newly_append_ind] = lq_pos[0]
-                lq_pos[0] = (lq_pos[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
-                    Bits(32)
-                )
+                lq_pos[0] = (lq_pos[0].bitcast(Int(32)) + Int(32)(1)).bitcast(Bits(32))
                 log(
                     "RS entry index {} assigned LSQ load position {}, LQ position {}",
                     newly_append_ind,
@@ -274,9 +275,7 @@ class ReservationStation(Module):
                     Bits(32)
                 )
                 sq_poses_array[newly_append_ind] = sq_pos[0]
-                sq_pos[0] = (sq_pos[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
-                    Bits(32)
-                )
+                sq_pos[0] = (sq_pos[0].bitcast(Int(32)) + Int(32)(1)).bitcast(Bits(32))
                 log(
                     "RS entry index {} assigned LSQ store position {}, SQ position {}",
                     newly_append_ind,
@@ -290,8 +289,11 @@ class ReservationStation(Module):
                     read_mux(reorder_busy_array_d, rs1_from_d)
                     & (~newly_freed_flag | (newly_freed_rd != rs1_from_d))
                 ):
-                    write_1hot(qj_array_d, newly_append_ind,
-                               read_mux(reorder_array_d, rs1_from_d))
+                    write_1hot(
+                        qj_array_d,
+                        newly_append_ind,
+                        read_mux(reorder_array_d, rs1_from_d),
+                    )
                     write_1hot(vj_array_d, newly_append_ind, Bits(32)(0))
                     log(
                         "RS entry index {} waiting for rs1 x{:02} from ROB entry {}",
@@ -312,8 +314,7 @@ class ReservationStation(Module):
                     ~read_mux(reorder_busy_array_d, rs1_from_d)
                     & (~newly_freed_flag | (newly_freed_rd != rs1_from_d))
                 ):
-                    write_1hot(vj_array_d, newly_append_ind,
-                               reg_file[rs1_from_d])
+                    write_1hot(vj_array_d, newly_append_ind, reg_file[rs1_from_d])
                     write_1hot(qj_array_d, newly_append_ind, Q_DEFAULT)
                     log(
                         "RS entry index {} got rs1 x{:02} value 0x{:08x} from RegFile",
@@ -337,8 +338,11 @@ class ReservationStation(Module):
                     read_mux(reorder_busy_array_d, rs2_from_d)
                     & (~newly_freed_flag | (newly_freed_rd != rs2_from_d))
                 ):
-                    write_1hot(qk_array_d, newly_append_ind,
-                               read_mux(reorder_array_d, rs2_from_d))
+                    write_1hot(
+                        qk_array_d,
+                        newly_append_ind,
+                        read_mux(reorder_array_d, rs2_from_d),
+                    )
                     write_1hot(vk_array_d, newly_append_ind, Bits(32)(0))
                     log(
                         "RS entry index {} waiting for rs2 x{:02} from ROB entry {}",
@@ -359,8 +363,7 @@ class ReservationStation(Module):
                     ~read_mux(reorder_busy_array_d, rs2_from_d)
                     & (~newly_freed_flag | (newly_freed_rd != rs2_from_d))
                 ):
-                    write_1hot(vk_array_d, newly_append_ind,
-                               reg_file[rs2_from_d])
+                    write_1hot(vk_array_d, newly_append_ind, reg_file[rs2_from_d])
                     write_1hot(qk_array_d, newly_append_ind, Q_DEFAULT)
                     log(
                         "RS entry index {} got rs2 x{:02} value 0x{:08x} from RegFile",
@@ -380,8 +383,9 @@ class ReservationStation(Module):
 
             with Condition(rd_valid_from_d):
                 rd_valid_array[newly_append_ind] = Bits(1)(1)
-                write_1hot(reorder_array_d, rd_from_d,
-                           newly_append_ind.bitcast(Bits(32)))
+                write_1hot(
+                    reorder_array_d, rd_from_d, newly_append_ind.bitcast(Bits(32))
+                )
                 write_1hot(reorder_busy_array_d, rd_from_d, Bits(1)(1))
                 log(
                     "Reorder array updated: x{:02} -> RS entry {}",
@@ -433,8 +437,13 @@ class ReservationStation(Module):
 
         has_selected = has_selected & ~revert_flag
         with Condition(has_selected):
-            log("Dispatching RS entry {} to ROB", dispatch_index)
+            log(
+                "Dispatching RS entry {} to ROB, pc=0x{:08X}",
+                dispatch_index,
+                pc_array[dispatch_index].bitcast(Int(32)),
+            )
             write_1hot(dispatched_array_d, dispatch_index, Bits(1)(1))
+
         read_mux(vj_array_d, dispatch_index)
         # Send to ROB
         rob.async_called(
@@ -462,8 +471,7 @@ class ReservationStation(Module):
         )
 
         # Send to LSQ
-        lsq_out_flag = has_selected & (
-            memory_array[dispatch_index] != Bits(2)(0))
+        lsq_out_flag = has_selected & (memory_array[dispatch_index] != Bits(2)(0))
         with Condition(lsq_out_flag):
             log("Dispatching RS entry {} to LSQ", dispatch_index)
         lsq.async_called(

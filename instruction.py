@@ -313,6 +313,8 @@ DecodeSignals = Record(
     is_auipc=Bits(1),
     is_lui=Bits(1),
     is_branch_inst=Bits(1),
+    is_ebreak=Bits(1),
+    is_ecall=Bits(1),
 )
 
 decoder_signal_default = DecodeSignals.bundle(
@@ -340,6 +342,8 @@ decoder_signal_default = DecodeSignals.bundle(
     is_auipc=Bits(1)(0),
     is_lui=Bits(1)(0),
     is_branch_inst=Bits(1)(0),
+    is_ebreak=Bits(1)(0),
+    is_ecall=Bits(1)(0),
 )
 
 supported_opcodes = [
@@ -378,6 +382,9 @@ supported_opcodes = [
     ('sra'  ,   (0b0110011, 0b101, 0b0100000, RV32I_ALU.ALU_SRA), RInst),
     ('slt'  ,   (0b0110011, 0b010, 0b0000000, RV32I_ALU.ALU_CMP_LT), RInst),
     ('sltu' ,   (0b0110011, 0b011, 0b0000000, RV32I_ALU.ALU_CMP_LTU), RInst),
+
+    ('ebreak', (0b1110011, 0b000, RV32I_ALU.ALU_NONE, None,0b000000000001,None), IInst),
+    ('ecall' , (0b1110011, 0b000, RV32I_ALU.ALU_NONE, None,0b000000000000,None), IInst),
 
     # S type (opcode, funct3, alu)
     ('sb'   ,   (0b0100011, 0b000, RV32I_ALU.ALU_ADD), SInst),

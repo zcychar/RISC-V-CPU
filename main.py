@@ -64,7 +64,7 @@ def create_test_program(instructions=None):
     return num_instructions
 
 
-def build_and_run():
+def build_and_run(max_cycles=50, dcache_init_file=None):
     """构建并运行仿真"""
     depth_log = 6  # 2^6 = 64条指令空间
 
@@ -91,11 +91,12 @@ def build_and_run():
         rob_bypass_pc_to_if = RegArray(Bits(32), 1)
         rob_bypass_is_jump_to_if = RegArray(Bits(1), 1)
         rob_bypass_valid_to_rs = RegArray(Bits(1), 1)
+        rob_bypass_need_update_to_rs = RegArray(Bits(1), 1)
         rob_bypass_value_to_rs = RegArray(Bits(32), 1)
         rob_bypass_index_to_rs = RegArray(Bits(32), 1)
         revert_flag_cdb = RegArray(Bits(1), 1)
 
-        dcache = SRAM(width=32, depth=1 << DCACHE_DEPTH_LOG, init_file=None)
+        dcache = SRAM(width=32, depth=1 << DCACHE_DEPTH_LOG, init_file=dcache_init_file)
         dcache.name = "dcache"
 
         lsb_out_valid_to_rob = RegArray(Bits(1), 1)
@@ -132,11 +133,13 @@ def build_and_run():
             rob_dest_from_lsq=lsb_rob_dest_to_rob,
             commit_sq_pos_to_lsq=rob_commit_sq_pos_to_lsq,
             commit_valid_to_lsq=rob_commit_valid_to_lsq,
+            need_update_to_rs=rob_bypass_need_update_to_rs
         )
 
         rs = ReservationStation()
         rs.build(
             in_valid_from_rob=rob_bypass_valid_to_rs,
+            need_update_from_rob=rob_bypass_need_update_to_rs,
             in_index_from_rob=rob_bypass_index_to_rs,
             value_from_rob=rob_bypass_value_to_rs,
             ifetch_continue_flag=ifetch_continue_flag,
@@ -174,8 +177,8 @@ def build_and_run():
     # 配置仿真参数
     conf = config(
         verilog=bool(utils.has_verilator()),  # 生成 Verilog
-        sim_threshold=50,  # 运行 50 个周期
-        idle_threshold=50,
+        sim_threshold=max_cycles,  # 最大运行周期数
+        idle_threshold=max_cycles,
         resource_base="",
         fifo_depth=1,
     )
@@ -229,6 +232,65 @@ def build_and_run():
     return result.returncode == 0, verilog_path
 
 
+def load_workload_file(filename):
+    """从 workload 文件夹加载十六进制指令文件
+    支持三种格式:
+    1. workload/xxx.txt - 直接加载文件
+    2. workload/xxx/xxx.txt - 从子文件夹加载，同时查找 xxx.data 作为 dcache 初始化
+    3. workload/xxx - 自动从子文件夹加载 xxx/xxx.txt 和 xxx/xxx.data
+    """
+    data_file = None
+    
+    # 检查是否包含文件夹路径或扩展名
+    if "/" in filename:
+        # 格式: folder/file.txt
+        workload_path = os.path.join(current_path, "workload", filename)
+        folder_name = filename.split("/")[0]
+        data_file = os.path.join(current_path, "workload", folder_name, f"{folder_name}.data")
+    elif not filename.endswith(".txt"):
+        # 格式: folder (不含扩展名) - 自动查找 folder/folder.txt
+        folder_name = filename
+        workload_path = os.path.join(current_path, "workload", folder_name, f"{folder_name}.txt")
+        data_file = os.path.join(current_path, "workload", folder_name, f"{folder_name}.data")
+    else:
+        # 格式: file.txt
+        workload_path = os.path.join(current_path, "workload", filename)
+        data_file = None
+    
+    if not os.path.exists(workload_path):
+        print(f"✗ 错误: 找不到文件 {workload_path}")
+        sys.exit(1)
+    
+    instructions = []
+    with open(workload_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            
+            # 移除 // 后的注释
+            if "//" in line:
+                line = line.split("//")[0].strip()
+            
+            # 跳过空行和注释
+            if not line or line.startswith("#") or line.startswith("@"):
+                continue
+            try:
+                # 将十六进制字符串转换为整数
+                inst = int(line, 16)
+                instructions.append(inst)
+            except ValueError:
+                print(f"✗ 警告: 无法解析指令: {line}")
+                continue
+    
+    print(f"✓ 从 {filename} 加载了 {len(instructions)} 条指令")
+    
+    # 检查是否存在数据文件
+    if data_file and os.path.exists(data_file):
+        print(f"✓ 找到数据文件: {data_file}")
+        return instructions, data_file
+    else:
+        return instructions, None
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run Toy CPU tests")
     parser.add_argument(
@@ -245,18 +307,38 @@ def main():
             "jal",
             "jalr",
             "jal_jalr",
+            "sum_0_to_100",
         ],
         default="default",
         help="Select test case",
     )
+    parser.add_argument(
+        "--workload",
+        type=str,
+        help="Load instructions from a file in workload/ directory (e.g., 0to100/0to100.txt or file.txt)",
+    )
+    parser.add_argument(
+        "--max-cycles",
+        type=int,
+        default=50,
+        help="Maximum number of simulation cycles to run (default: 50)",
+    )
     args = parser.parse_args()
 
     print("=" * 70)
-    print(f"测试: {args.test}")
+    if args.workload:
+        print(f"工作负载: {args.workload}")
+    else:
+        print(f"测试: {args.test}")
     print("=" * 70)
 
     instructions = None
-    if args.test == "war":
+    dcache_init_file = None
+    
+    # 优先使用 --workload 选项
+    if args.workload:
+        instructions, dcache_init_file = load_workload_file(args.workload)
+    elif args.test == "war":
         instructions = war_hazard_test()
     elif args.test == "waw":
         instructions = waw_hazard_test()
@@ -276,13 +358,18 @@ def main():
         instructions = jalr_test()
     elif args.test == "jal_jalr":
         instructions = jal_jalr_combined_test()
+    elif args.test == "sum_0_to_100":
+        instructions = sum_0_to_100_test()
+    
     # 1. 创建测试程序
     print("\n[步骤 1] 创建测试程序")
     create_test_program(instructions)
 
     # 2. 构建并运行
-    print("\n[步骤 2] 构建并运行仿真")
-    success, verilog_path = build_and_run()
+    print(f"\n[步骤 2] 构建并运行仿真 (最大周期数: {args.max_cycles})")
+    if dcache_init_file:
+        print(f"    使用 dcache 初始化文件: {dcache_init_file}")
+    success, verilog_path = build_and_run(max_cycles=args.max_cycles, dcache_init_file=dcache_init_file)
 
     if success:
         print("\n✓ 仿真成功完成")
