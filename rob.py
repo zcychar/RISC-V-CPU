@@ -134,18 +134,21 @@ class ROB(Module):
             )
             with Condition(commit_flag):
                 log(
-                    "Committing entry rob_idx={}, dest={}, value=0x{:08x}, rs_idx={}",
+                    "Committing entry rob_idx={}, dest={}, value=0x{:08x}, rs_idx={}, pc=0x{:08x}",
                     pos[0],
                     dest_array[pos[0]],
                     read_mux(value_array_d, pos[0]),
                     ind_array[pos[0]],
+                    pc_array[pos[0]],
                 )
                 index_to_rs[0] = ind_array[pos[0]]
                 head = pos[0]
                 with Condition(~revert_flag):
                     # If revert triggered, clearing entries is handled later
                     write_1hot(busy_array_d, head, Bits(1)(0))
-                    pos[0] = (head.bitcast(UInt(32)) + UInt(32)(1)) & Bits(32)(ROB_SIZE - 1)
+                    pos[0] = (head.bitcast(UInt(32)) + UInt(32)(1)) & Bits(32)(
+                        ROB_SIZE - 1
+                    )
                 write_1hot(ready_array_d, head, Bits(1)(0))
                 with Condition(
                     is_jal_from_rs_array[head] | is_jalr_from_rs_array[head]

@@ -66,7 +66,7 @@ def create_test_program(instructions=None):
 
 def build_and_run(max_cycles=50, dcache_init_file=None):
     """构建并运行仿真"""
-    depth_log = 6  # 2^6 = 64条指令空间
+    depth_log = 8  # 2^8 = 256条指令空间
 
     sys_obj = SysBuilder("my_cpu")
 

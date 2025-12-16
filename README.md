@@ -27,5 +27,5 @@ You could see log in the .workaspace/ directory.
 
 ## TODO
 - Handle the issue of index length mismatch
-- Implement Branch Prediction
+- Implement Branch Prediction. Now the cpu runs with an "always false" prediction strategy. It is not efficient when running loops. For example, in the plus workload, the cpu runs 40844 cycles to finish the program with approximately 700 flushes. With a better branch prediction strategy, the performance could be improved significantly.
 - Implement more tests

@@ -178,17 +178,23 @@ class ReservationStation(Module):
                 update_index,
                 new_val,
             )
-            with Condition(
-                is_ebreak_array[update_index] | is_ecall_array[update_index]
-            ):
+            with Condition(is_ebreak_array[update_index]):
                 log(
-                    "EBREAK/ECALL instruction committed, finish simulation",
+                    "EBREAK instruction committed, finish simulation",
+                )
+                finish()
+
+            with Condition(is_ecall_array[update_index]):
+                log(
+                    "ECALL instruction committed, finish simulation",
                 )
                 finish()
 
             with Condition(need_update_from_rob[0]):
                 for i in range(RS_SIZE):
-                    with Condition(busy_array_d[i][0] & (qj_array_d[i][0] == update_index)):
+                    with Condition(
+                        busy_array_d[i][0] & (qj_array_d[i][0] == update_index)
+                    ):
                         vj_array_d[i][0] = new_val
                         qj_array_d[i][0] = Q_DEFAULT
                         log(
@@ -197,7 +203,9 @@ class ReservationStation(Module):
                             new_val,
                             update_index,
                         )
-                    with Condition(busy_array_d[i][0] & (qk_array_d[i][0] == update_index)):
+                    with Condition(
+                        busy_array_d[i][0] & (qk_array_d[i][0] == update_index)
+                    ):
                         vk_array_d[i][0] = new_val
                         qk_array_d[i][0] = Q_DEFAULT
                         log(
