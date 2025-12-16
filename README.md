@@ -19,6 +19,10 @@ For example:
 ```
 python main.py --test raw --max-cycles 100
 ```
+You can also use --workload to run workload files in workloads/ directory. For example:
+```
+python main.py --workload 0to100 --max-cycles 10000
+```
 You could see log in the .workaspace/ directory.
 
 ## TODO
