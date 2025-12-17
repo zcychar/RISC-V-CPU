@@ -1,7 +1,7 @@
 from assassyn.frontend import *
 from utils import *
 
-LSQ_SIZE = 16
+LSQ_SIZE = 32
 
 
 class LSQ(Module):
@@ -219,7 +219,7 @@ class LSQ(Module):
                 )
                 lq_head[0] = (lq_head[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
                     Bits(32)
-                )
+                ) & Bits(32)(LSQ_SIZE - 1)
 
             with Condition(store_flag):
                 with Condition(read_mux(sq_lsq_pos_array_d, sq_head[0]) == Bits(32)(0)):
@@ -241,7 +241,7 @@ class LSQ(Module):
                 )
                 sq_head[0] = (sq_head[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
                     Bits(32)
-                )
+                ) & Bits(32)(LSQ_SIZE - 1)
 
         dcache.build(
             we=store_flag,

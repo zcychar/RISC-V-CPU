@@ -1,6 +1,7 @@
 from assassyn.frontend import *
 from instruction import *
 from utils import *
+from lsq import LSQ_SIZE
 
 RS_SIZE = 32
 Q_DEFAULT = Bits(32)(127)
@@ -165,14 +166,23 @@ class ReservationStation(Module):
         newly_freed_flag = in_valid_from_rob[0].select(newly_freed_flag, Bits(1)(0))
         revert_flag = revert_flag_cdb[0]
 
+        log("Busy entries in RS: {}", busy_entry_count[0].bitcast(UInt(32)))
+
+        busy_entry_count_next = in_valid_from_rob[0].select(
+            busy_entry_count[0].bitcast(Int(32)) - Int(32)(1),
+            busy_entry_count[0].bitcast(Int(32)),
+        )
+        busy_entry_count_next = has_entry_from_d.select(
+            busy_entry_count_next + Int(32)(1), busy_entry_count_next
+        )
+        busy_entry_count[0] = revert_flag.select(
+            Bits(32)(0), busy_entry_count_next.bitcast(Bits(32))
+        )
         # Commit from ROB
         with Condition(in_valid_from_rob[0]):
             update_index = in_index_from_rob[0]
             with Condition(~revert_flag):
                 write_1hot(busy_array_d, update_index, Bits(1)(0))
-                busy_entry_count[0] = (
-                    busy_entry_count[0].bitcast(Int(32)) - Int(32)(1)
-                ).bitcast(Bits(32))
             log(
                 "Committing from ROB idx={}, value=0x{:08x}",
                 update_index,
@@ -226,7 +236,6 @@ class ReservationStation(Module):
             log(
                 "Revert triggered, clearing all entries",
             )
-            busy_entry_count[0] = Bits(32)(0)
             for i in range(RS_SIZE):
                 busy_array_d[i][0] = Bits(1)(0)
             for i in range(32):
@@ -249,9 +258,6 @@ class ReservationStation(Module):
                 Bits(32)
             )
             write_1hot(busy_array_d, newly_append_ind, Bits(1)(1))
-            busy_entry_count[0] = (
-                busy_entry_count[0].bitcast(Int(32)) + Int(32)(1)
-            ).bitcast(Bits(32))
             pc_array[newly_append_ind] = pc_from_d
             alu_array[newly_append_ind] = alu_from_d
             alu_valid_array[newly_append_ind] = alu_valid_from_d
@@ -281,7 +287,9 @@ class ReservationStation(Module):
                     Bits(32)
                 )
                 lq_poses_array[newly_append_ind] = lq_pos[0]
-                lq_pos[0] = (lq_pos[0].bitcast(Int(32)) + Int(32)(1)).bitcast(Bits(32))
+                lq_pos[0] = (lq_pos[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
+                    Bits(32)
+                ) & Bits(32)(LSQ_SIZE - 1)
                 log(
                     "RS entry index {} assigned LSQ load position {}, LQ position {}",
                     newly_append_ind,
@@ -295,7 +303,9 @@ class ReservationStation(Module):
                     Bits(32)
                 )
                 sq_poses_array[newly_append_ind] = sq_pos[0]
-                sq_pos[0] = (sq_pos[0].bitcast(Int(32)) + Int(32)(1)).bitcast(Bits(32))
+                sq_pos[0] = (sq_pos[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
+                    Bits(32)
+                ) & Bits(32)(LSQ_SIZE - 1)
                 log(
                     "RS entry index {} assigned LSQ store position {}, SQ position {}",
                     newly_append_ind,
@@ -414,9 +424,6 @@ class ReservationStation(Module):
                 )
                 rd_array[newly_append_ind] = rd_from_d
 
-                with Condition(rd_from_d == newly_freed_rd):
-                    reuse_rd_flag = Bits(1)(1)
-
             with Condition(~rd_valid_from_d):
                 rd_valid_array[newly_append_ind] = Bits(1)(0)
                 write_1hot(reorder_array_d, rd_from_d, Bits(32)(0))
@@ -425,6 +432,10 @@ class ReservationStation(Module):
                     "Reorder array cleared for unused rd x{:02}",
                     rd_from_d,
                 )
+
+        reuse_rd_flag = (rd_from_d == newly_freed_rd).select(Bits(1)(1), Bits(1)(0))
+        reuse_rd_flag = rd_valid_from_d.select(reuse_rd_flag, Bits(1)(0))
+        reuse_rd_flag = (has_entry_from_d & ~revert_flag).select(reuse_rd_flag, Bits(1)(0))
 
         with Condition(~reuse_rd_flag & newly_freed_flag):
             write_1hot(reorder_array_d, newly_freed_rd, Bits(32)(0))
