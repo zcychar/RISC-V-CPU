@@ -27,7 +27,7 @@ class Decoder(Module):
 
         signals = decode_logic(inst=inst)
         log(
-            "memory={}, alu={}, cond={}, flip={}, is_branch={}, rs1=x{:02}, rs2=x{:02}, rd=x{:02}, imm=0x{:08x}, is_offset_br={}, link_pc={}, mem_oper_size={}, mem_oper_signed={}, is_pc_calc={}",
+            "memory={}, alu={}, cond={}, flip={}, is_branch={}, rs1=x{:02}, rs2=x{:02}, rd=x{:02}, imm=0x{:08x}, mem_oper_size={}, mem_oper_signed={}",
             signals.memory.bitcast(UInt(2)),
             signals.alu.bitcast(UInt(RV32I_ALU.CNT)),
             signals.cond.bitcast(UInt(RV32I_ALU.CNT)),
@@ -37,11 +37,8 @@ class Decoder(Module):
             signals.rs2,
             signals.rd,
             signals.imm,
-            signals.is_offset_br.bitcast(UInt(1)),
-            signals.link_pc.bitcast(UInt(1)),
             signals.mem_oper_size.bitcast(UInt(2)),
             signals.mem_oper_signed.bitcast(UInt(1)),
-            signals.is_pc_calc.bitcast(UInt(1)),
         )
 
         with Condition(revert_flag_cdb[0]):
@@ -49,20 +46,20 @@ class Decoder(Module):
                 "Received revert signal, skipping decode"
             )
             
-        rs.async_called(
-            decode_signals=signals,
-            has_entry_from_d=inst_valid_from_fi & (~revert_flag_cdb[0]),
-            pc_from_d=fetch_pc_from_fi,
-            jump_from_d=Bits(1)(0),
-        )
 
         is_jal = signals.is_jal
         is_branch = signals.is_branch
+        valid = inst_valid_from_fi & (~revert_flag_cdb[0])
+        is_jal = valid.select(is_jal, Bits(1)(0))
+        is_branch = valid.select(is_branch, Bits(1)(0))
         
         updated_pc = (is_jal | is_branch).select(
-            (fetch_pc_from_fi.bitcast(UInt(32)) + signals.imm.bitcast(UInt(32))).bitcast(Bits(32)),
+            (fetch_pc_from_fi.bitcast(Int(32)) + signals.imm.bitcast(Int(32))).bitcast(Bits(32)),
             (fetch_pc_from_fi.bitcast(UInt(32)) + Bits(32)(4)).bitcast(Bits(32)),
         )
+
+        jump = (updated_pc < fetch_pc_from_fi).select(Bits(1)(1), Bits(1)(0))
+        jump = is_branch.select(jump, Bits(1)(0))
 
         with Condition(is_jal):
             log(
@@ -72,8 +69,9 @@ class Decoder(Module):
 
         with Condition(is_branch):
             log(
-                "Decoder detected BRANCH, updated_pc=0x{:08x}",
+                "Decoder detected BRANCH, updated_pc=0x{:08x}, jump={}",
                 updated_pc,
+                jump,
             )
 
         nop = inst == Bits(32)(0x00000013)  # ADDI x0, x0, 0
@@ -82,7 +80,14 @@ class Decoder(Module):
                 "Decoder detected NOP instruction"
             )
 
-        return is_jal, is_branch, updated_pc, nop
+        rs.async_called(
+            decode_signals=signals,
+            has_entry_from_d=inst_valid_from_fi & (~revert_flag_cdb[0]),
+            pc_from_d=fetch_pc_from_fi,
+            jump_from_d=jump,
+        )
+
+        return is_jal, is_branch, updated_pc, nop, jump
 
 
 @rewrite_assign

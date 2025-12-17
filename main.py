@@ -156,7 +156,7 @@ def build_and_run(max_cycles=50, dcache_init_file=None):
         )
 
         decoder = Decoder()
-        is_jal, is_branch, updated_pc, is_nop = decoder.build(icache.dout, rs, revert_flag_cdb)
+        is_jal, is_branch, updated_pc, is_nop, jump = decoder.build(icache.dout, rs, revert_flag_cdb)
 
         fetch_impl = FetcherImpl()
         fetch_impl.build(
@@ -165,8 +165,8 @@ def build_and_run(max_cycles=50, dcache_init_file=None):
             is_jal_from_d=is_jal,
             is_branch_from_d=is_branch,
             is_nop_from_d=is_nop,
+            jump_from_d=jump,
             updated_pc_from_d=updated_pc,
-            on_br_from_d=Bits(1)(0),  # Not used currently
             icache=icache,
             depth_log=depth_log,
             decoder=decoder,

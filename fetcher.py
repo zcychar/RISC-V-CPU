@@ -28,8 +28,8 @@ class FetcherImpl(Downstream):
         is_jal_from_d: Value,
         is_branch_from_d: Value,
         is_nop_from_d: Value,
+        jump_from_d: Value,
         updated_pc_from_d: Value,
-        on_br_from_d: Value,
         icache: SRAM,
         depth_log: int,
         decoder: Decoder,
@@ -48,12 +48,22 @@ class FetcherImpl(Downstream):
         """
         fetch_state = RegArray(Bits(1), 1, initializer=[1])
         is_jal = is_jal_from_d.optional(Bits(1)(0))
+        is_branch = is_branch_from_d.optional(Bits(1)(0))
+        jump = jump_from_d.optional(Bits(1)(0))
         updated_pc_from_d = updated_pc_from_d.optional(Bits(32)(0))
-        fetch_addr = is_jal.select(updated_pc_from_d, pc_addr_from_f)
+        fetch_addr = (is_jal | (is_branch & jump)).select(
+            updated_pc_from_d, pc_addr_from_f
+        )
         fetch_addr = revert_flag_cdb[0].select(updated_pc_from_rob[0], fetch_addr)
         with Condition(is_jal):
             log(
                 "Fetcher received JAL PC=0x{:08x}",
+                updated_pc_from_d,
+            )
+
+        with Condition(is_branch & jump):
+            log(
+                "Fetcher received BRANCH taken PC=0x{:08x}",
                 updated_pc_from_d,
             )
 
@@ -77,7 +87,7 @@ class FetcherImpl(Downstream):
             fetch_addr,
             next_pc,
             should_fetch.bitcast(UInt(1)),
-            on_br_from_d.bitcast(UInt(1)),
+            is_branch.bitcast(UInt(1)),
         )
 
         fetch_state[0] = should_fetch
