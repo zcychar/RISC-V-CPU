@@ -255,19 +255,22 @@ def sum_0_to_100_test():
     Result stored in x10
     """
     return [
-        addi(10, 0, 0),   # x10 = 0 (sum accumulator)
+        addi(13, 0, 0),   # x13 = 0 (sum accumulator)
         addi(11, 0, 0),   # x11 = 0 (counter, starts from 0)
         addi(12, 0, 100), # x12 = 100 (loop limit)
         
         # Loop start (offset 12)
-        add(10, 10, 11),  # x10 = x10 + x11 (sum += counter)
+        add(13, 13, 11),  # x13 = x13 + x11 (sum += counter)
         addi(11, 11, 1),  # x11 = x11 + 1 (counter++)
         
         # Check if counter <= 100
         bge(12, 11, -8),  # if x12 >= x11 (100 >= counter), jump back to loop start
         
         # Loop end - result in x10 should be 5050
-        ebreak(),         # Exit simulation
+        addi(10, 13, 0),  # x10 = x13 (move result to x10)
+        addi(10, 0, 255),
+        nop(),
+        nop(),
         nop(),
         nop(),
         nop(),

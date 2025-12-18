@@ -200,6 +200,38 @@ class ReservationStation(Module):
                 )
                 finish()
 
+            is_li_x10_255 = (
+                (alu_array[update_index] == Bits(RV32I_ALU.CNT)(1 << RV32I_ALU.ALU_ADD))
+                & (rd_array[update_index] == Bits(5)(10))
+                & (imm_valid_array[update_index] == Bits(1)(1))
+                & (read_mux(vj_array_d, update_index) == Bits(32)(0))
+                & (memory_array[update_index] == Bits(2)(0))
+                & (imm_array[update_index] == Bits(32)(255))
+            )
+
+            # with Condition(rd_array[update_index] == Bits(5)(10)):
+            #     log(
+            #         "Register x10 committed, with alu={} imm=0x{:08x}, vj=0x{:08x}, imm_valid={}, memory={}, is_branch={}, is_jal={}, is_jalr={}, is_auipc={}, is_lui={}, is_li_x10_255={}",
+            #         alu_array[update_index].bitcast(UInt(RV32I_ALU.CNT)),
+            #         imm_array[update_index],
+            #         read_mux(vj_array_d, update_index),
+            #         imm_valid_array[update_index].bitcast(UInt(1)),
+            #         memory_array[update_index].bitcast(UInt(2)),
+            #         is_branch_array[update_index].bitcast(UInt(1)),
+            #         is_jal_array[update_index].bitcast(UInt(1)),
+            #         is_jalr_array[update_index].bitcast(UInt(1)),
+            #         is_auipc_array[update_index].bitcast(UInt(1)),
+            #         is_lui_array[update_index].bitcast(UInt(1)),
+            #         is_li_x10_255.bitcast(UInt(1)),
+            #     )
+
+            with Condition(is_li_x10_255):
+                log(
+                    "Main program executed LI x10 255, finish simulation",
+                )
+                log("{}", reg_file[10].bitcast(UInt(32)))
+                finish()
+
             with Condition(need_update_from_rob[0]):
                 for i in range(RS_SIZE):
                     with Condition(
@@ -318,6 +350,7 @@ class ReservationStation(Module):
                 with Condition(
                     read_mux(reorder_busy_array_d, rs1_from_d)
                     & (~newly_freed_flag | (newly_freed_rd != rs1_from_d))
+                    & (rs1_from_d != Bits(5)(0))
                 ):
                     write_1hot(
                         qj_array_d,
@@ -343,6 +376,7 @@ class ReservationStation(Module):
                 with Condition(
                     ~read_mux(reorder_busy_array_d, rs1_from_d)
                     & (~newly_freed_flag | (newly_freed_rd != rs1_from_d))
+                    & (rs1_from_d != Bits(5)(0))
                 ):
                     write_1hot(vj_array_d, newly_append_ind, reg_file[rs1_from_d])
                     write_1hot(qj_array_d, newly_append_ind, Q_DEFAULT)
@@ -351,6 +385,13 @@ class ReservationStation(Module):
                         newly_append_ind,
                         rs1_from_d,
                         reg_file[rs1_from_d],
+                    )
+                with Condition(rs1_from_d == Bits(5)(0)):
+                    write_1hot(vj_array_d, newly_append_ind, Bits(32)(0))
+                    write_1hot(qj_array_d, newly_append_ind, Q_DEFAULT)
+                    log(
+                        "RS entry index {} has rs1 x0, set value to 0",
+                        newly_append_ind,
                     )
 
             with Condition(~rs1_valid_from_d):
@@ -367,6 +408,7 @@ class ReservationStation(Module):
                 with Condition(
                     read_mux(reorder_busy_array_d, rs2_from_d)
                     & (~newly_freed_flag | (newly_freed_rd != rs2_from_d))
+                    & (rs2_from_d != Bits(5)(0))
                 ):
                     write_1hot(
                         qk_array_d,
@@ -380,7 +422,11 @@ class ReservationStation(Module):
                         rs2_from_d,
                         read_mux(reorder_array_d, rs2_from_d),
                     )
-                with Condition(newly_freed_flag & (newly_freed_rd == rs2_from_d)):
+                with Condition(
+                    newly_freed_flag
+                    & (newly_freed_rd == rs2_from_d)
+                    & (rs2_from_d != Bits(5)(0))
+                ):
                     write_1hot(vk_array_d, newly_append_ind, value_from_rob[0])
                     write_1hot(qk_array_d, newly_append_ind, Q_DEFAULT)
                     log(
@@ -392,6 +438,7 @@ class ReservationStation(Module):
                 with Condition(
                     ~read_mux(reorder_busy_array_d, rs2_from_d)
                     & (~newly_freed_flag | (newly_freed_rd != rs2_from_d))
+                    & (rs2_from_d != Bits(5)(0))
                 ):
                     write_1hot(vk_array_d, newly_append_ind, reg_file[rs2_from_d])
                     write_1hot(qk_array_d, newly_append_ind, Q_DEFAULT)
@@ -400,6 +447,14 @@ class ReservationStation(Module):
                         newly_append_ind,
                         rs2_from_d,
                         reg_file[rs2_from_d],
+                    )
+
+                with Condition(rs2_from_d == Bits(5)(0)):
+                    write_1hot(vk_array_d, newly_append_ind, Bits(32)(0))
+                    write_1hot(qk_array_d, newly_append_ind, Q_DEFAULT)
+                    log(
+                        "RS entry index {} has rs2 x0, set value to 0",
+                        newly_append_ind,
                     )
 
             with Condition(~rs2_valid_from_d):
@@ -435,7 +490,9 @@ class ReservationStation(Module):
 
         reuse_rd_flag = (rd_from_d == newly_freed_rd).select(Bits(1)(1), Bits(1)(0))
         reuse_rd_flag = rd_valid_from_d.select(reuse_rd_flag, Bits(1)(0))
-        reuse_rd_flag = (has_entry_from_d & ~revert_flag).select(reuse_rd_flag, Bits(1)(0))
+        reuse_rd_flag = (has_entry_from_d & ~revert_flag).select(
+            reuse_rd_flag, Bits(1)(0)
+        )
 
         with Condition(~reuse_rd_flag & newly_freed_flag):
             write_1hot(reorder_array_d, newly_freed_rd, Bits(32)(0))
