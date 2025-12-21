@@ -318,7 +318,7 @@ def build_simulator(max_cycles=50, icache_init_file: str | None = None, dcache_i
     return simulator_binary, verilog_path
 
 
-def run_simulator(simulator_binary: str, *, timeout_s: int = 30, log_file_path: str | None = None) -> bool:
+def run_simulator(simulator_binary: str, *, timeout_s: int = 30, log_file_path: str | None = None, verilog_path: str | None = None) -> bool:
     """运行已编译好的仿真器，并把 stdout/stderr 写入 .workspace/simulation.log。"""
     if log_file_path is None:
         log_file_path = f"{workspace}/simulation.log"
@@ -336,7 +336,13 @@ def run_simulator(simulator_binary: str, *, timeout_s: int = 30, log_file_path: 
     print(f"✓ 仿真日志已保存至: {log_file_path}")
 
     # Run Verilator simulation (可选)
-    # 注：Verilator 路径由 elaborate 的输出决定；这里只保留原行为（如果需要可再扩展）。
+    if verilog_path and utils.has_verilator():
+        print("\n正在运行 Verilog 仿真...")
+        verilog_log = utils.run_verilator(verilog_path)
+        verilog_log_path = f"{workspace}/simulation.verilog.log"
+        with open(verilog_log_path, "w") as f:
+            f.write(verilog_log)
+        print(f"✓ Verilog 仿真日志已保存至: {verilog_log_path}")
 
     # print("\n" + "=" * 70)
     # print("仿真输出:")
@@ -356,16 +362,7 @@ def build_and_run(max_cycles=50, dcache_init_file=None):
     simulator_binary, verilog_path = build_simulator(
         max_cycles=max_cycles, icache_init_file=icache_init_file, dcache_init_file=dcache_init_file
     )
-    success = run_simulator(simulator_binary)
-
-    # 旧逻辑：可选 Verilator 仿真
-    if utils.has_verilator():
-        print("\n正在运行 Verilog 仿真...")
-        verilog_log = utils.run_verilator(verilog_path)
-        verilog_log_path = f"{workspace}/simulation.verilog.log"
-        with open(verilog_log_path, "w") as f:
-            f.write(verilog_log)
-        print(f"✓ Verilog 仿真日志已保存至: {verilog_log_path}")
+    success = run_simulator(simulator_binary, verilog_path=verilog_path)
 
     return success, verilog_path
 
@@ -389,7 +386,7 @@ def run_all_workloads(max_cycles: int, *, timeout_s: int = 30) -> int:
     print("=" * 70)
 
     print("\n[步骤 0] 编译仿真器（一次）")
-    simulator_binary, _ = build_simulator(
+    simulator_binary, verilog_path = build_simulator(
         max_cycles=max_cycles, icache_init_file=icache_init_file, dcache_init_file=dcache_init_file
     )
 
@@ -410,7 +407,8 @@ def run_all_workloads(max_cycles: int, *, timeout_s: int = 30) -> int:
             _copy_text_file("/dev/null", dcache_init_file)
 
         # 2) 运行仿真
-        ok = run_simulator(simulator_binary, timeout_s=timeout_s, log_file_path=f"{workspace}/simulation.log")
+        ok = run_simulator(simulator_binary, timeout_s=timeout_s, log_file_path=f"{workspace}/simulation.log", verilog_path=verilog_path)
+        
         if not ok:
             failed += 1
             failures.append(f"{case.name}: 仿真返回非 0")

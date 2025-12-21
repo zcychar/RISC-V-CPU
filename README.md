@@ -34,6 +34,5 @@ python main.py --all-workloads --max-cycles 300000
 ```
 
 ## TODO
-- Handle the issue of index length mismatch
 - Implement more advanced Branch Prediction.
 - Implement more tests

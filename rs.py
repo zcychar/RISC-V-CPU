@@ -4,6 +4,7 @@ from utils import *
 from lsq import LSQ_SIZE
 
 RS_SIZE = 32
+RS_SIZE_LOG = 5
 Q_DEFAULT = Bits(32)(127)
 
 
@@ -180,7 +181,7 @@ class ReservationStation(Module):
         )
         # Commit from ROB
         with Condition(in_valid_from_rob[0]):
-            update_index = in_index_from_rob[0]
+            update_index = in_index_from_rob[0].bitcast(Bits(5))
             with Condition(~revert_flag):
                 write_1hot(busy_array_d, update_index, Bits(1)(0))
             log(
@@ -283,8 +284,8 @@ class ReservationStation(Module):
 
         # Append new entry
         with Condition(has_entry_from_d & ~revert_flag):
-            newly_append_ind = newly_append_index[0].bitcast(Int(32))
-            newly_append_index[0] = (newly_append_ind + Int(32)(1)) & Int(32)(
+            newly_append_ind = newly_append_index[0].bitcast(Bits(RS_SIZE_LOG))
+            newly_append_index[0] = (newly_append_index[0].bitcast(Int(32)) + Int(32)(1)) & Int(32)(
                 RS_SIZE - 1
             )
             log("New RS entry allocated at index {}", newly_append_ind)
@@ -509,7 +510,7 @@ class ReservationStation(Module):
         ).select(Bits(1)(1), Bits(1)(0))
 
         # Dispatch logic
-        dispatch_index = Bits(32)(0)
+        dispatch_index = Bits(RS_SIZE_LOG)(0)
         # dispatch_flag = Bits(1)(0)
         has_selected = Bits(1)(0)
         for i in range(RS_SIZE):
@@ -520,7 +521,7 @@ class ReservationStation(Module):
                 & (qk_array_d[i][0] == Q_DEFAULT)
             )
             is_selected = entry_ready & ~has_selected
-            current_index_value = is_selected.select(Bits(32)(i), Bits(32)(0))
+            current_index_value = is_selected.select(Bits(RS_SIZE_LOG)(i), Bits(RS_SIZE_LOG)(0))
             dispatch_index = dispatch_index | current_index_value
 
             has_selected = has_selected | entry_ready

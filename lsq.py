@@ -1,7 +1,8 @@
 from assassyn.frontend import *
 from utils import *
 
-LSQ_SIZE = 32
+LSQ_SIZE = 8
+LSQ_SIZE_LOG = 3  # log2(LSQ_SIZE)
 
 
 class LSQ(Module):
@@ -121,12 +122,14 @@ class LSQ(Module):
                         Bits(32)(i), max_sq_committed_index
                     )
 
-                update_sq_pos_to_rs[0] = (max_sq_committed_index + Bits(32)(1)).bitcast(
-                    Bits(32)
-                )
+                update_sq_pos_to_rs[0] = (
+                    max_sq_committed_index.bitcast(UInt(32)) + UInt(32)(1)
+                ).bitcast(Bits(32))
                 log(
                     "After revert, updating RS sq_pos to {}",
-                    (max_sq_committed_index + Bits(32)(1)).bitcast(Bits(32)),
+                    (max_sq_committed_index.bitcast(UInt(32)) + UInt(32)(1)).bitcast(
+                        Bits(32)
+                    ),
                 )
 
             lsq_head[0] = Bits(32)(1)
@@ -141,13 +144,14 @@ class LSQ(Module):
         with Condition(has_entry_from_rs & (~revert_flag_cdb[0])):
             with Condition(memory_from_rs[0:0] == Bits(1)(1)):  # Load
                 index = lq_pos_from_rs & Bits(32)(LSQ_SIZE - 1)
+                index_trucated = index.bitcast(Bits(LSQ_SIZE_LOG))
                 write_1hot(lq_busy_array_d, index, Bits(1)(1))
                 addr = rs1_val_from_rs.bitcast(Int(32)) + imm_val_from_rs.bitcast(
                     Int(32)
                 )
-                lq_addr_array[index] = addr.bitcast(Bits(32))
-                lq_rob_dest_array[index] = rob_dest_from_rs
-                lq_lsq_pos_array[index] = lsq_pos_from_rs
+                lq_addr_array[index_trucated] = addr.bitcast(Bits(32))
+                lq_rob_dest_array[index_trucated] = rob_dest_from_rs
+                lq_lsq_pos_array[index_trucated] = lsq_pos_from_rs
                 log(
                     "Append LQ Entry: index={}, addr=0x{:08x}, rob_dest=0x{:08x}, lsq_pos={}",
                     index.bitcast(UInt(32)),
@@ -158,12 +162,13 @@ class LSQ(Module):
 
             with Condition(memory_from_rs[1:1] == Bits(1)(1)):  # Store
                 index = sq_pos_from_rs & Bits(32)(LSQ_SIZE - 1)
+                index_trucated = index.bitcast(Bits(LSQ_SIZE_LOG))
                 write_1hot(sq_busy_array_d, index, Bits(1)(1))
                 addr = rs1_val_from_rs.bitcast(Int(32)) + imm_val_from_rs.bitcast(
                     Int(32)
                 )
-                sq_addr_array[index] = addr.bitcast(Bits(32))
-                sq_data_array[index] = rs2_val_from_rs
+                sq_addr_array[index_trucated] = addr.bitcast(Bits(32))
+                sq_data_array[index_trucated] = rs2_val_from_rs
                 write_1hot(sq_is_committed_array_d, index, Bits(1)(0))
                 write_1hot(sq_lsq_pos_array_d, index, lsq_pos_from_rs)
                 log(
@@ -175,6 +180,9 @@ class LSQ(Module):
                 )
 
         # Execute head entry
+        lq_head_pos = lq_head[0].bitcast(Bits(LSQ_SIZE_LOG))
+        sq_head_pos = sq_head[0].bitcast(Bits(LSQ_SIZE_LOG))
+
         store_flag = (
             read_mux(sq_busy_array_d, sq_head[0])
             & (
@@ -187,18 +195,19 @@ class LSQ(Module):
 
         load_flag = (
             read_mux(lq_busy_array_d, lq_head[0])
-            & (lq_lsq_pos_array[lq_head[0]] == lsq_head[0])
+            & (lq_lsq_pos_array[lq_head_pos] == lsq_head[0])
             & (~store_flag)
             & (~revert_flag_cdb[0])
         )
         requested_addr = load_flag.select(
-            lq_addr_array[lq_head[0]][2 : 2 + depth_log - 1].bitcast(UInt(depth_log)),
-            sq_addr_array[sq_head[0]][2 : 2 + depth_log - 1].bitcast(UInt(depth_log)),
+            lq_addr_array[lq_head_pos][2 : 2 + depth_log - 1].bitcast(UInt(depth_log)),
+            sq_addr_array[sq_head_pos][2 : 2 + depth_log - 1].bitcast(UInt(depth_log)),
         )
         out_valid_to_rob[0] = load_flag
         rob_dest_to_rob[0] = load_flag.select(
-            lq_rob_dest_array[lq_head[0]], Bits(32)(0)
+            lq_rob_dest_array[lq_head_pos], Bits(32)(0)
         )
+        
         with Condition(load_flag | store_flag):
             log(
                 "Execute Entry: LSQ pos={}, Load={}, Store={}",
@@ -215,7 +224,7 @@ class LSQ(Module):
                 log(
                     "Load: LQ index={}, addr=0x{:08x}",
                     lq_head[0].bitcast(UInt(32)),
-                    lq_addr_array[lq_head[0]],
+                    lq_addr_array[lq_head_pos],
                 )
                 lq_head[0] = (lq_head[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
                     Bits(32)
@@ -235,8 +244,8 @@ class LSQ(Module):
                 log(
                     "Store: SQ index={}, addr=0x{:08x}, data=0x{:08x}, is_committed={}",
                     sq_head[0].bitcast(UInt(32)),
-                    sq_addr_array[sq_head[0]],
-                    sq_data_array[sq_head[0]],
+                    sq_addr_array[sq_head_pos],
+                    sq_data_array[sq_head_pos],
                     read_mux(sq_is_committed_array_d, sq_head[0]),
                 )
                 sq_head[0] = (sq_head[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
@@ -247,5 +256,5 @@ class LSQ(Module):
             we=store_flag,
             re=load_flag,
             addr=requested_addr,
-            wdata=sq_data_array[sq_head[0]],
+            wdata=sq_data_array[sq_head_pos],
         )

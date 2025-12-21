@@ -3,6 +3,7 @@ from instruction import *
 from utils import *
 
 ROB_SIZE = 32
+ROB_SIZE_LOG = 5
 
 
 class ROB(Module):
@@ -117,36 +118,34 @@ class ROB(Module):
 
         with Condition(~revert_flag_cdb[0]):
             # commit head entry
-            commit_flag = read_mux(busy_array_d, pos[0]) & read_mux(
-                ready_array_d, pos[0]
-            )
+            head = pos[0].bitcast(Bits(ROB_SIZE_LOG))
+            commit_flag = read_mux(busy_array_d, pos[0]) & read_mux(ready_array_d, head)
             bypass_valid_to_if[0] = commit_flag & (
-                is_branch_from_rs_array[pos[0]] | is_jalr_from_rs_array[pos[0]]
+                is_branch_from_rs_array[head] | is_jalr_from_rs_array[head]
             )
             revert_flag = commit_flag & (
                 (
-                    is_branch_from_rs_array[pos[0]]
-                    & (read_mux(value_array_d, pos[0])[0:0] ^ jump_array[pos[0]][0:0])
+                    is_branch_from_rs_array[head]
+                    & (read_mux(value_array_d, head)[0:0] ^ jump_array[head][0:0])
                 )
-                | is_jalr_from_rs_array[pos[0]]
+                | is_jalr_from_rs_array[head]
             )
             revert_flag_cdb[0] = revert_flag
             need_update_to_rs[0] = commit_flag & ~(
-                is_branch_from_rs_array[pos[0]] | memory_from_rs_array[pos[0]][1:1]
+                is_branch_from_rs_array[head] | memory_from_rs_array[head][1:1]
             )
-            commit_branch_to_bpu[0] = commit_flag & is_branch_from_rs_array[pos[0]]
-            pc_addr_to_bpu[0] = pc_array[pos[0]]
+            commit_branch_to_bpu[0] = commit_flag & is_branch_from_rs_array[head]
+            pc_addr_to_bpu[0] = pc_array[head]
             with Condition(commit_flag):
                 log(
                     "Committing entry rob_idx={}, dest={}, value=0x{:08x}, rs_idx={}, pc=0x{:08x}",
-                    pos[0],
-                    dest_array[pos[0]],
-                    read_mux(value_array_d, pos[0]),
-                    ind_array[pos[0]],
-                    pc_array[pos[0]],
+                    head,
+                    dest_array[head],
+                    read_mux(value_array_d, head),
+                    ind_array[head],
+                    pc_array[head],
                 )
-                index_to_rs[0] = ind_array[pos[0]]
-                head = pos[0]
+                index_to_rs[0] = ind_array[head]
                 with Condition(~revert_flag):
                     # If revert triggered, clearing entries is handled later
                     write_1hot(busy_array_d, head, Bits(1)(0))
@@ -159,25 +158,42 @@ class ROB(Module):
                 ):
                     log(
                         "is_jal/jalr, value_to_rs[0] = 0x{:08x}",
-                        pc_array[head] + Bits(32)(4),
+                        pc_array[head].bitcast(Int(32)) + Int(32)(4),
                     )
-                    value_to_rs[0] = pc_array[head] + Bits(32)(4)
+                    value_to_rs[0] = (
+                        pc_array[head].bitcast(Int(32)) + Int(32)(4)
+                    ).bitcast(Bits(32))
 
                 with Condition(is_jalr_from_rs_array[head]):
                     log(
                         "is_jalr, updated_pc_to_if[0] = 0x{:08x}",
-                        (rs1_val_array[head] + imm_array[head]) & Bits(32)(0xFFFFFFFE),
+                        (
+                            (
+                                rs1_val_array[head].bitcast(Int(32))
+                                + imm_array[head].bitcast(Int(32))
+                            )
+                        ).bitcast(Bits(32))
+                        & Bits(32)(0xFFFFFFFE),
                     )
                     updated_pc_to_if[0] = (
-                        rs1_val_array[head] + imm_array[head]
+                        (
+                            rs1_val_array[head].bitcast(Int(32))
+                            + imm_array[head].bitcast(Int(32))
+                        ).bitcast(Bits(32))
                     ) & Bits(32)(0xFFFFFFFE)
 
                 with Condition(is_auipc_from_rs_array[head]):
                     log(
                         "is_auipc, value_to_rs[0] = 0x{:08x}",
-                        pc_array[head] + imm_array[head],
+                        (
+                            pc_array[head].bitcast(Int(32))
+                            + imm_array[head].bitcast(Int(32))
+                        ).bitcast(Bits(32)),
                     )
-                    value_to_rs[0] = pc_array[head] + imm_array[head]
+                    value_to_rs[0] = (
+                        pc_array[head].bitcast(Int(32))
+                        + imm_array[head].bitcast(Int(32))
+                    ).bitcast(Bits(32))
 
                 with Condition(is_lui_from_rs_array[head]):
                     log("is_lui, value_to_rs[0] = 0x{:08x}", imm_array[head])
@@ -219,12 +235,17 @@ class ROB(Module):
 
                     # Branch taken
                     with Condition(read_mux(value_array_d, head)[0:0]):
-                        updated_pc_to_if[0] = pc_array[head] + imm_array[head]
+                        updated_pc_to_if[0] = (
+                            pc_array[head].bitcast(Int(32))
+                            + imm_array[head].bitcast(Int(32))
+                        ).bitcast(Bits(32))
                         actual_taken_to_bpu[0] = Bits(1)(1)
 
                     # Branch not taken
                     with Condition(~read_mux(value_array_d, head)[0:0]):
-                        updated_pc_to_if[0] = pc_array[head] + Bits(32)(4)
+                        updated_pc_to_if[0] = (
+                            pc_array[head].bitcast(Int(32)) + Int(32)(4)
+                        ).bitcast(Bits(32))
                         actual_taken_to_bpu[0] = Bits(1)(0)
 
                     with Condition(~predict_result):
@@ -250,8 +271,8 @@ class ROB(Module):
             with Condition(revert_flag):
                 log(
                     "Revert triggered at idx={}, pc={}",
-                    pos[0],
-                    pc_array[pos[0]],
+                    head,
+                    pc_array[head],
                 )
                 pos[0] = Bits(32)(0)
                 # Clear all entries
@@ -263,14 +284,14 @@ class ROB(Module):
                 commit_valid_to_lsq[0] = Bits(1)(0)
                 log(
                     "No commit, busy={}, ready={}, idx={}",
-                    read_mux(busy_array_d, pos[0]),
-                    read_mux(ready_array_d, pos[0]),
-                    pos[0],
+                    read_mux(busy_array_d, head),
+                    read_mux(ready_array_d, head),
+                    head,
                 )
 
             # receive from ALU
             with Condition(alu_valid_from_alu[0] & ~revert_flag):
-                alu_idx = rob_index_from_alu[0]
+                alu_idx = rob_index_from_alu[0].bitcast(Bits(ROB_SIZE_LOG))
                 write_1hot(ready_array_d, alu_idx, Bits(1)(1))
                 write_1hot(
                     value_array_d,
@@ -289,7 +310,9 @@ class ROB(Module):
 
             # receive from LSQ
             with Condition(in_valid_from_lsq[0] & ~revert_flag):
-                lsq_idx = rob_dest_from_lsq[0] & Bits(32)(ROB_SIZE - 1)
+                lsq_idx = (rob_dest_from_lsq[0] & Bits(32)(ROB_SIZE - 1)).bitcast(
+                    Bits(ROB_SIZE_LOG)
+                )
                 write_1hot(ready_array_d, lsq_idx, Bits(1)(1))
                 write_1hot(value_array_d, lsq_idx, value_from_dcache[0])
                 log(
@@ -299,7 +322,7 @@ class ROB(Module):
                 )
 
             # append new entry
-            idx = (dest_from_rs & Bits(32)(ROB_SIZE - 1)).bitcast(Int(32))
+            idx = (dest_from_rs & Bits(32)(ROB_SIZE - 1)).bitcast(Bits(ROB_SIZE_LOG))
             # Currently we don't send memory instructions to ALU
             alu_flag = (
                 (

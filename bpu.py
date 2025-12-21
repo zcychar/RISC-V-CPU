@@ -23,7 +23,9 @@ class AlwaysFalseBPU(Downstream):
         """
 
         predict_taken[0] = Bits(1)(0)
-        predicted_pc[0] = pc_addr_from_d + Bits(32)(4)
+        predicted_pc[0] = (
+            pc_addr_from_d.bitcast(Int(32)) + Bits(32)(4).bitcast(Int(32))
+        ).bitcast(Bits(32))
 
         with Condition(is_branch_from_d):
             log(
@@ -57,7 +59,10 @@ class AlwaysTakenBPU(Downstream):
 
         predict_taken[0] = is_branch_from_d
         predicted_pc_addr = is_branch_from_d.select(
-            target_pc_from_d, pc_addr_from_d + Bits(32)(4)
+            target_pc_from_d,
+            (pc_addr_from_d.bitcast(Int(32)) + Bits(32)(4).bitcast(Int(32))).bitcast(
+                Bits(32)
+            ),
         )
         predicted_pc[0] = predicted_pc_addr
 
@@ -102,13 +107,15 @@ class TwoBitBPU(Downstream):
         counter = bpu_counters[pc_index]
 
         branch_predict_taken = counter[1:1]
+        pc_plus_4 = (pc_addr_from_d.bitcast(Int(32)) + Int(32)(4)).bitcast(Bits(32))
         branch_predicted_pc = branch_predict_taken.select(
-            target_pc_from_d, pc_addr_from_d + Bits(32)(4)
+            target_pc_from_d, pc_plus_4
         )
 
         predict_taken_flag = is_branch_from_d.select(branch_predict_taken, Bits(1)(0))
         predicted_pc_addr = is_branch_from_d.select(
-            branch_predicted_pc, pc_addr_from_d + Bits(32)(4)
+            branch_predicted_pc,
+            pc_plus_4,
         )
 
         with Condition(is_branch_from_d):
@@ -131,8 +138,12 @@ class TwoBitBPU(Downstream):
             plus_one_flag = (counter != Bits(2)(3)) & actual_taken_flag
             minus_one_flag = (counter != Bits(2)(0)) & (~actual_taken_flag)
 
-            new_counter = plus_one_flag.select(counter + Bits(2)(1), counter)
-            new_counter = minus_one_flag.select(counter - Bits(2)(1), new_counter)
+            new_counter = plus_one_flag.select(
+                (counter.bitcast(Int(2)) + Int(2)(1)).bitcast(Bits(2)), counter
+            )
+            new_counter = minus_one_flag.select(
+                (counter.bitcast(Int(2)) - Int(2)(1)).bitcast(Bits(2)), new_counter
+            )
 
             bpu_counters[rob_pc_index] = new_counter
 
