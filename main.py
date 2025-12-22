@@ -166,7 +166,7 @@ def build_simulator(
     dcache_init_file: str | None = None,
 ):
     """只构建（elaborate+编译）仿真器，返回二进制路径与 verilog 输出路径。"""
-    depth_log = 8  # 2^8 = 256条指令空间
+    depth_log = 8  # 2^8 = 256条指令空间（默认）；如需更大程序可考虑改为 10（1024）
 
     sys_obj = SysBuilder("my_cpu")
 
