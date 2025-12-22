@@ -8,7 +8,7 @@ fi
 
 NAME=$1
 
-riscv64-unknown-elf-gcc -march=rv32i -mabi=ilp32 -nostdlib -Wl,-Ttext=0x0 -T ./linker.ld -o ${NAME}.elf start.S ${NAME}.c
+riscv64-unknown-elf-gcc -march=rv32i -mabi=ilp32 -nostdlib -Wl,-Ttext=0x0 -T ./linker.ld -o ${NAME}.elf start.S ${NAME}.c -lgcc
 mkdir -p ${NAME}
 touch ${NAME}/${NAME}.asm
 riscv64-unknown-elf-objdump -d ${NAME}.elf > ${NAME}/${NAME}.asm

@@ -6,3 +6,4 @@ workspace/
 *.pyc
 filter_log.py
 .build_cache.json
+assassyn.sif

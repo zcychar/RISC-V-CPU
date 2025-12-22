@@ -35,4 +35,3 @@ python main.py --all-workloads --max-cycles 300000
 
 ## TODO
 - Implement more advanced Branch Prediction.
-- Implement more tests
