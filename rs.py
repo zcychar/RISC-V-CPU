@@ -282,6 +282,8 @@ class ReservationStation(Module):
             newly_append_index[0] = Bits(32)(0)
             pos_in_rob[0] = Bits(32)(0)
             lq_pos[0] = Bits(32)(0)
+
+        with Condition(revert_flag & ~in_valid_from_lsq[0]):
             sq_pos[0] = Bits(32)(0)
 
         # Append new entry
