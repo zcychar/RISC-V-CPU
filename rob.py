@@ -123,7 +123,8 @@ class ROB(Module):
         with Condition(~revert_flag_cdb[0]):
             # commit head entry
             head = pos[0].bitcast(Bits(ROB_SIZE_LOG))
-            commit_flag = read_mux(busy_array_d, pos[0]) & read_mux(ready_array_d, head)
+            commit_flag = read_mux(busy_array_d, pos[0]) & read_mux(
+                ready_array_d, head)
             bypass_valid_to_if[0] = commit_flag & (
                 is_branch_from_rs_array[head] | is_jalr_from_rs_array[head]
             )
@@ -157,6 +158,9 @@ class ROB(Module):
                         ROB_SIZE - 1
                     )
                 write_1hot(ready_array_d, head, Bits(1)(0))
+                # Collect committed value once to avoid multi-write on value_to_rs
+                value_out = Bits(32)(0)
+
                 with Condition(
                     is_jal_from_rs_array[head] | is_jalr_from_rs_array[head]
                 ):
@@ -164,10 +168,8 @@ class ROB(Module):
                         "is_jal/jalr, value_to_rs[0] = 0x{:08x}",
                         pc_array[head].bitcast(Int(32)) + Int(32)(4),
                     )
-                    value_to_rs[0] = (
-                        pc_array[head].bitcast(Int(32)) + Int(32)(4)
-                    ).bitcast(Bits(32))
-
+                value_out = (is_jal_from_rs_array[head] | is_jalr_from_rs_array[head]).select(
+                    (pc_array[head].bitcast(Int(32)) + Int(32)(4)).bitcast(Bits(32)), value_out)
                 with Condition(is_jalr_from_rs_array[head]):
                     self.log(
                         "is_jalr, updated_pc_to_if[0] = 0x{:08x}",
@@ -194,10 +196,11 @@ class ROB(Module):
                             + imm_array[head].bitcast(Int(32))
                         ).bitcast(Bits(32)),
                     )
-                    value_to_rs[0] = (
-                        pc_array[head].bitcast(Int(32))
-                        + imm_array[head].bitcast(Int(32))
-                    ).bitcast(Bits(32))
+
+                value_out = (is_auipc_from_rs_array[head]).select(
+                    (pc_array[head].bitcast(
+                        Int(32)) + imm_array[head].bitcast(Int(32))).bitcast(Bits(32)),
+                    value_out)
 
                 with Condition(is_lui_from_rs_array[head]):
                     self.log("is_lui, value_to_rs[0] = 0x{:08x}", imm_array[head])
@@ -208,23 +211,27 @@ class ROB(Module):
                         "alu_type, value_to_rs[0] = 0x{:08x}",
                         read_mux(value_array_d, head),
                     )
-                    value_to_rs[0] = read_mux(value_array_d, head)
+                value_out = (alu_valid_array[head]).select(
+                    read_mux(value_array_d, head), value_out)
 
                 with Condition(memory_from_rs_array[head][0:0] == Bits(1)(1)):
                     self.log(
                         "load_type, value_to_rs[0] = 0x{:08x}",
                         read_mux(value_array_d, head),
                     )
-                    value_to_rs[0] = read_mux(value_array_d, head)
+                value_out = (memory_from_rs_array[head][0:0] == Bits(1)(
+                    1)).select(read_mux(value_array_d, head), value_out)
 
                 with Condition(memory_from_rs_array[head][1:1] == Bits(1)(1)):
-                    value_to_rs[0] = Bits(32)(0)
                     commit_sq_pos_to_lsq[0] = sq_pos_from_rs_array[head]
                     commit_valid_to_lsq[0] = Bits(1)(1)
                     self.log(
                         "store_type, commit_sq_pos_to_lsq[0] = {}",
                         sq_pos_from_rs_array[head],
                     )
+                value_out = (memory_from_rs_array[head][1:1] == Bits(
+                    1)(1)).select(Bits(32)(0), value_out)
+
                 with Condition(~(memory_from_rs_array[head][1:1] == Bits(1)(1))):
                     commit_valid_to_lsq[0] = Bits(1)(0)
 
@@ -234,7 +241,8 @@ class ROB(Module):
                         read_mux(value_array_d, head),
                     )
                     predict_result = ~(
-                        read_mux(value_array_d, head)[0:0] ^ jump_array[head][0:0]
+                        read_mux(value_array_d, head)[
+                            0:0] ^ jump_array[head][0:0]
                     )
 
                     # Branch taken
@@ -270,6 +278,8 @@ class ROB(Module):
                             read_mux(value_array_d, head)[0:0],
                         )
 
+                # Single write to value_to_rs avoids multi-write panic in runtime
+                value_to_rs[0] = value_out
                 out_valid_to_rs[0] = Bits(1)(1)
 
             with Condition(revert_flag):
@@ -326,7 +336,8 @@ class ROB(Module):
                 )
 
             # append new entry
-            idx = (dest_from_rs & Bits(32)(ROB_SIZE - 1)).bitcast(Bits(ROB_SIZE_LOG))
+            idx = (dest_from_rs & Bits(32)(ROB_SIZE - 1)
+                   ).bitcast(Bits(ROB_SIZE_LOG))
             # Currently we don't send memory instructions to ALU
             alu_flag = (
                 (
@@ -369,7 +380,8 @@ class ROB(Module):
 
                 ready_flag = ~alu_flag & ~memory_from_rs[0:0]
                 write_1hot(
-                    ready_array_d, idx, ready_flag.select(Bits(1)(1), Bits(1)(0))
+                    ready_array_d, idx, ready_flag.select(
+                        Bits(1)(1), Bits(1)(0))
                 )
                 self.log(
                     "Appended entry idx={}, ind_rs={}, pc={}, rs1={}, rs2={}, imm=0x{:08x}, alu={}, memory={}, alu_valid={}, ready={}, cond={}, flip={}",
