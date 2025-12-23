@@ -24,3 +24,26 @@ def read_mux(arrs, idx_val):
     Note: this function is NOT SAFE against index out-of-bound
     """
     return idx_val.case({Bits(32)(i): arrs[i][0] for i, arr in enumerate(arrs)} | {None: arrs[0][0]})
+
+
+class Logger:
+    """
+    A wrapper around the assassyn log function that allows enabling/disabling logging.
+    """
+    def __init__(self, enabled=True):
+        self.enabled = enabled
+
+    def __call__(self, fmt, *args):
+        if self.enabled:
+            log(fmt, *args)
+
+    def set_enabled(self, enabled):
+        self.enabled = enabled
+
+FetcherLogEnabled = False
+DecoderLogEnabled = False
+ALULogEnabled = False
+RSLogEnabled = False
+ROBLogEnabled = False
+LSQLogEnabled = False
+BPULogEnabled = False

@@ -1,10 +1,12 @@
 from assassyn.frontend import *
+from utils import Logger, BPULogEnabled
 
 
 class AlwaysFalseBPU(Downstream):
     def __init__(self):
         super().__init__()
         self.name = "BPU"
+        self.log = Logger(enabled=BPULogEnabled)
 
     @downstream.combinational
     def build(
@@ -28,7 +30,7 @@ class AlwaysFalseBPU(Downstream):
         ).bitcast(Bits(32))
 
         with Condition(is_branch_from_d):
-            log(
+            self.log(
                 "BPU PC=0x{:08x} PredictTaken=0",
                 pc_addr_from_d,
             )
@@ -40,6 +42,7 @@ class AlwaysTakenBPU(Downstream):
     def __init__(self):
         super().__init__()
         self.name = "BPU"
+        self.log = Logger(enabled=BPULogEnabled)
 
     @downstream.combinational
     def build(
@@ -67,7 +70,7 @@ class AlwaysTakenBPU(Downstream):
         predicted_pc[0] = predicted_pc_addr
 
         with Condition(is_branch_from_d):
-            log(
+            self.log(
                 "BPU PC=0x{:08x} PredictTaken=1",
                 pc_addr_from_d,
             )
@@ -79,6 +82,7 @@ class TwoBitBPU(Downstream):
     def __init__(self):
         super().__init__()
         self.name = "BPU"
+        self.log = Logger(enabled=BPULogEnabled)
 
     @downstream.combinational
     def build(
@@ -119,7 +123,7 @@ class TwoBitBPU(Downstream):
         )
 
         with Condition(is_branch_from_d):
-            log(
+            self.log(
                 "BPU PC=0x{:08x} Counter={} PredictTaken={}",
                 pc_addr_from_d,
                 counter.bitcast(UInt(2)),
@@ -147,7 +151,7 @@ class TwoBitBPU(Downstream):
 
             bpu_counters[rob_pc_index] = new_counter
 
-            log(
+            self.log(
                 "BPU Update PC=0x{:08x} OldCounter={} ActualTaken={} NewCounter={}",
                 pc_addr_from_rob[0],
                 counter.bitcast(UInt(2)),

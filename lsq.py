@@ -1,8 +1,9 @@
 from assassyn.frontend import *
 from utils import *
 
-LSQ_SIZE = 8
-LSQ_SIZE_LOG = 3  # log2(LSQ_SIZE)
+LSQ_SIZE = 16
+LSQ_SIZE_LOG = 4  # log2(LSQ_SIZE)
+DCACHE_OFFSET = 0x10000
 
 
 class LSQ(Module):
@@ -21,6 +22,7 @@ class LSQ(Module):
             }
         )
         self.name = "LSQ"
+        self.log = Logger(enabled=LSQLogEnabled)
 
     @module.combinational
     def build(
@@ -74,7 +76,7 @@ class LSQ(Module):
                 commit_sq_pos_from_rob[0] & Bits(32)(LSQ_SIZE - 1),
                 Bits(1)(1),
             )
-            log(
+            self.log(
                 "Receive commit for SQ entry: sq_pos={}",
                 commit_sq_pos_from_rob[0].bitcast(UInt(32)),
             )
@@ -85,17 +87,17 @@ class LSQ(Module):
         )
         valid_to_rs[0] = revert_flag_cdb[0] & sq_pos_need_update
         with Condition(revert_flag_cdb[0]):
-            log("Received revert signal, flushing LSQ")
+            self.log("Received revert signal, flushing LSQ")
 
             with Condition(~sq_pos_need_update):
-                log(
+                self.log(
                     "sq_is_committed_array[{}] == 0 on revert, setting sq_head to 0",
                     sq_head[0].bitcast(UInt(32)),
                 )
                 sq_head[0] = Bits(32)(0)
 
             with Condition(sq_pos_need_update):
-                log(
+                self.log(
                     "sq_is_committed_array[{}] == 1 on revert, keeping sq_head as is",
                     sq_head[0].bitcast(UInt(32)),
                 )
@@ -125,7 +127,7 @@ class LSQ(Module):
                 update_sq_pos_to_rs[0] = (
                     max_sq_committed_index.bitcast(UInt(32)) + UInt(32)(1)
                 ).bitcast(Bits(32))
-                log(
+                self.log(
                     "After revert, updating RS sq_pos to {}",
                     (max_sq_committed_index.bitcast(UInt(32)) + UInt(32)(1)).bitcast(
                         Bits(32)
@@ -148,11 +150,11 @@ class LSQ(Module):
                 write_1hot(lq_busy_array_d, index, Bits(1)(1))
                 addr = rs1_val_from_rs.bitcast(Int(32)) + imm_val_from_rs.bitcast(
                     Int(32)
-                )
+                ) - Int(32)(DCACHE_OFFSET)
                 lq_addr_array[index_trucated] = addr.bitcast(Bits(32))
                 lq_rob_dest_array[index_trucated] = rob_dest_from_rs
                 lq_lsq_pos_array[index_trucated] = lsq_pos_from_rs
-                log(
+                self.log(
                     "Append LQ Entry: index={}, addr=0x{:08x}, rob_dest=0x{:08x}, lsq_pos={}",
                     index.bitcast(UInt(32)),
                     addr.bitcast(UInt(32)),
@@ -166,12 +168,12 @@ class LSQ(Module):
                 write_1hot(sq_busy_array_d, index, Bits(1)(1))
                 addr = rs1_val_from_rs.bitcast(Int(32)) + imm_val_from_rs.bitcast(
                     Int(32)
-                )
+                ) - Int(32)(DCACHE_OFFSET)
                 sq_addr_array[index_trucated] = addr.bitcast(Bits(32))
                 sq_data_array[index_trucated] = rs2_val_from_rs
                 write_1hot(sq_is_committed_array_d, index, Bits(1)(0))
                 write_1hot(sq_lsq_pos_array_d, index, lsq_pos_from_rs)
-                log(
+                self.log(
                     "Append SQ Entry: index={}, addr=0x{:08x}, data=0x{:08x}, lsq_pos={}",
                     index.bitcast(UInt(32)),
                     addr.bitcast(UInt(32)),
@@ -207,9 +209,9 @@ class LSQ(Module):
         rob_dest_to_rob[0] = load_flag.select(
             lq_rob_dest_array[lq_head_pos], Bits(32)(0)
         )
-        
+
         with Condition(load_flag | store_flag):
-            log(
+            self.log(
                 "Execute Entry: LSQ pos={}, Load={}, Store={}",
                 lsq_head[0].bitcast(UInt(32)),
                 load_flag.bitcast(UInt(1)),
@@ -221,7 +223,7 @@ class LSQ(Module):
                     Bits(32)
                 )
                 write_1hot(lq_busy_array_d, lq_head[0], Bits(1)(0))
-                log(
+                self.log(
                     "Load: LQ index={}, addr=0x{:08x}",
                     lq_head[0].bitcast(UInt(32)),
                     lq_addr_array[lq_head_pos],
@@ -233,7 +235,7 @@ class LSQ(Module):
             with Condition(store_flag):
                 with Condition(read_mux(sq_lsq_pos_array_d, sq_head[0]) == Bits(32)(0)):
 
-                    log(
+                    self.log(
                         "Store with lsq_pos=0, treating as committed already before flushing"
                     )
                 with Condition(read_mux(sq_lsq_pos_array_d, sq_head[0]) != Bits(32)(0)):
@@ -241,7 +243,7 @@ class LSQ(Module):
                         Bits(32)
                     )
                 write_1hot(sq_busy_array_d, sq_head[0], Bits(1)(0))
-                log(
+                self.log(
                     "Store: SQ index={}, addr=0x{:08x}, data=0x{:08x}, is_committed={}",
                     sq_head[0].bitcast(UInt(32)),
                     sq_addr_array[sq_head_pos],
@@ -251,6 +253,7 @@ class LSQ(Module):
                 sq_head[0] = (sq_head[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
                     Bits(32)
                 ) & Bits(32)(LSQ_SIZE - 1)
+
 
         dcache.build(
             we=store_flag,

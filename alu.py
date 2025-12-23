@@ -1,5 +1,6 @@
 from assassyn.frontend import *
 from instruction import *
+from utils import Logger, ALULogEnabled
 
 
 class ALU(Module):
@@ -14,6 +15,7 @@ class ALU(Module):
             }
         )
         self.name = "ALU"
+        self.log = Logger(enabled=ALULogEnabled)
 
     @module.combinational
     def build(self, value_to_rob: Array, index_to_rob: Array, valid_to_rob: Array):
@@ -56,7 +58,7 @@ class ALU(Module):
 
         alu_result = alu_valid_from_rob.select(alu_result, Bits(32)(0))
         with Condition(alu_valid_from_rob):
-            log(
+            self.log(
                 "ALU alu={}, a=0x{:08x}, b=0x{:08x} => result=0x{:08x}",
                 op_from_rob.bitcast(UInt(RV32I_ALU.CNT)),
                 alu_a,

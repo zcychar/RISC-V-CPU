@@ -2,8 +2,8 @@ from assassyn.frontend import *
 from instruction import *
 from utils import *
 
-ROB_SIZE = 32
-ROB_SIZE_LOG = 5
+ROB_SIZE = 16
+ROB_SIZE_LOG = 4
 
 
 class ROB(Module):
@@ -34,6 +34,7 @@ class ROB(Module):
             }
         )
         self.name = "ROB"
+        self.log = Logger(enabled=ROBLogEnabled)
 
     @module.combinational
     def build(
@@ -113,7 +114,11 @@ class ROB(Module):
 
         with Condition(revert_flag_cdb[0]):
             revert_flag_cdb[0] = Bits(1)(0)
-            log("Resume after revert")
+            self.log("Resume after revert")
+            commit_branch_to_bpu[0] = Bits(1)(0)
+            out_valid_to_rs[0] = Bits(1)(0)
+            need_update_to_rs[0] = Bits(1)(0)
+            commit_valid_to_lsq[0] = Bits(1)(0)
 
         with Condition(~revert_flag_cdb[0]):
             # commit head entry
@@ -136,7 +141,7 @@ class ROB(Module):
             commit_branch_to_bpu[0] = commit_flag & is_branch_from_rs_array[head]
             pc_addr_to_bpu[0] = pc_array[head]
             with Condition(commit_flag):
-                log(
+                self.log(
                     "Committing entry rob_idx={}, dest={}, value=0x{:08x}, rs_idx={}, pc=0x{:08x}",
                     head,
                     dest_array[head],
@@ -155,7 +160,7 @@ class ROB(Module):
                 with Condition(
                     is_jal_from_rs_array[head] | is_jalr_from_rs_array[head]
                 ):
-                    log(
+                    self.log(
                         "is_jal/jalr, value_to_rs[0] = 0x{:08x}",
                         pc_array[head].bitcast(Int(32)) + Int(32)(4),
                     )
@@ -164,7 +169,7 @@ class ROB(Module):
                     ).bitcast(Bits(32))
 
                 with Condition(is_jalr_from_rs_array[head]):
-                    log(
+                    self.log(
                         "is_jalr, updated_pc_to_if[0] = 0x{:08x}",
                         (
                             (
@@ -182,7 +187,7 @@ class ROB(Module):
                     ) & Bits(32)(0xFFFFFFFE)
 
                 with Condition(is_auipc_from_rs_array[head]):
-                    log(
+                    self.log(
                         "is_auipc, value_to_rs[0] = 0x{:08x}",
                         (
                             pc_array[head].bitcast(Int(32))
@@ -195,18 +200,18 @@ class ROB(Module):
                     ).bitcast(Bits(32))
 
                 with Condition(is_lui_from_rs_array[head]):
-                    log("is_lui, value_to_rs[0] = 0x{:08x}", imm_array[head])
+                    self.log("is_lui, value_to_rs[0] = 0x{:08x}", imm_array[head])
                     value_to_rs[0] = imm_array[head]
 
                 with Condition(alu_valid_array[head]):
-                    log(
+                    self.log(
                         "alu_type, value_to_rs[0] = 0x{:08x}",
                         read_mux(value_array_d, head),
                     )
                     value_to_rs[0] = read_mux(value_array_d, head)
 
                 with Condition(memory_from_rs_array[head][0:0] == Bits(1)(1)):
-                    log(
+                    self.log(
                         "load_type, value_to_rs[0] = 0x{:08x}",
                         read_mux(value_array_d, head),
                     )
@@ -216,7 +221,7 @@ class ROB(Module):
                     value_to_rs[0] = Bits(32)(0)
                     commit_sq_pos_to_lsq[0] = sq_pos_from_rs_array[head]
                     commit_valid_to_lsq[0] = Bits(1)(1)
-                    log(
+                    self.log(
                         "store_type, commit_sq_pos_to_lsq[0] = {}",
                         sq_pos_from_rs_array[head],
                     )
@@ -224,7 +229,7 @@ class ROB(Module):
                     commit_valid_to_lsq[0] = Bits(1)(0)
 
                 with Condition(is_branch_from_rs_array[head]):
-                    log(
+                    self.log(
                         "is_branch_type, value_array[head] = 0x{:08x}",
                         read_mux(value_array_d, head),
                     )
@@ -248,7 +253,7 @@ class ROB(Module):
                         actual_taken_to_bpu[0] = Bits(1)(0)
 
                     with Condition(~predict_result):
-                        log(
+                        self.log(
                             "Branch mispredict at idx={}, pc={}, predicted={}, actual={}",
                             head,
                             pc_array[head],
@@ -257,7 +262,7 @@ class ROB(Module):
                         )
 
                     with Condition(predict_result):
-                        log(
+                        self.log(
                             "Branch correct at idx={}, pc={}, predicted={}, actual={}",
                             head,
                             pc_array[head],
@@ -268,7 +273,7 @@ class ROB(Module):
                 out_valid_to_rs[0] = Bits(1)(1)
 
             with Condition(revert_flag):
-                log(
+                self.log(
                     "Revert triggered at idx={}, pc={}",
                     head,
                     pc_array[head],
@@ -281,7 +286,7 @@ class ROB(Module):
             with Condition(~commit_flag):
                 out_valid_to_rs[0] = Bits(1)(0)
                 commit_valid_to_lsq[0] = Bits(1)(0)
-                log(
+                self.log(
                     "No commit, busy={}, ready={}, idx={}",
                     read_mux(busy_array_d, head),
                     read_mux(ready_array_d, head),
@@ -300,7 +305,7 @@ class ROB(Module):
                         alu_value_from_alu[0],
                     ),
                 )
-                log(
+                self.log(
                     "Received from ALU idx={}, value=0x{:08x}, flip={}",
                     alu_idx,
                     alu_value_from_alu[0],
@@ -314,7 +319,7 @@ class ROB(Module):
                 )
                 write_1hot(ready_array_d, lsq_idx, Bits(1)(1))
                 write_1hot(value_array_d, lsq_idx, value_from_dcache[0])
-                log(
+                self.log(
                     "Received from LSQ idx={}, value=0x{:08x}",
                     lsq_idx,
                     value_from_dcache[0],
@@ -325,7 +330,14 @@ class ROB(Module):
             # Currently we don't send memory instructions to ALU
             alu_flag = (
                 (
-                    (alu_valid_from_rs & (memory_from_rs == Bits(2)(0)))
+                    (
+                        alu_valid_from_rs
+                        & (memory_from_rs == Bits(2)(0))
+                        & ~is_jalr_from_rs
+                        & ~is_jal_from_rs
+                        & ~is_lui_from_rs
+                        & ~is_auipc_from_rs
+                    )
                     | is_branch_from_rs
                 )
                 & ~revert_flag
@@ -337,9 +349,7 @@ class ROB(Module):
                 alu_array[idx] = alu_from_rs
                 rs1_val_array[idx] = rs1_val_from_rs
                 rs1_valid_array[idx] = rs1_valid_from_rs
-                alu_valid_array[idx] = (
-                    alu_flag & ~is_branch_from_rs & ~is_jal_from_rs & ~is_jalr_from_rs
-                )
+                alu_valid_array[idx] = alu_flag & ~is_branch_from_rs
                 memory_from_rs_array[idx] = memory_from_rs
                 rs2_valid_array[idx] = rs2_valid_from_rs
                 rs2_val_array[idx] = rs2_val_from_rs
@@ -361,7 +371,7 @@ class ROB(Module):
                 write_1hot(
                     ready_array_d, idx, ready_flag.select(Bits(1)(1), Bits(1)(0))
                 )
-                log(
+                self.log(
                     "Appended entry idx={}, ind_rs={}, pc={}, rs1={}, rs2={}, imm=0x{:08x}, alu={}, memory={}, alu_valid={}, ready={}, cond={}, flip={}",
                     idx,
                     ind_from_rs,

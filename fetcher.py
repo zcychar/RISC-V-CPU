@@ -1,7 +1,7 @@
 from assassyn.frontend import *
 
 from decoder import Decoder
-
+from utils import Logger, FetcherLogEnabled
 
 class Fetcher(Module):
     def __init__(self):
@@ -19,6 +19,7 @@ class FetcherImpl(Downstream):
     def __init__(self):
         super().__init__()
         self.name = "FI"
+        self.log = Logger(enabled=FetcherLogEnabled)
 
     @downstream.combinational
     def build(
@@ -56,32 +57,32 @@ class FetcherImpl(Downstream):
         fetch_addr = (is_branch & jump).select(updated_pc_from_bpu, fetch_addr)
         fetch_addr = revert_flag_cdb[0].select(updated_pc_from_rob[0], fetch_addr)
         with Condition(is_jal):
-            log(
+            self.log(
                 "Fetcher received JAL PC=0x{:08x}",
                 target_pc_from_d,
             )
 
         with Condition(is_branch & jump):
-            log(
+            self.log(
                 "Fetcher received BRANCH taken PC=0x{:08x}",
                 updated_pc_from_bpu,
             )
 
         with Condition(revert_flag_cdb[0]):
-            log(
+            self.log(
                 "Fetcher received redirect PC=0x{:08x}",
                 updated_pc_from_rob[0],
             )
 
         should_fetch = continue_flag_from_rs[0]
         with Condition(~should_fetch):
-            log("Fetcher is stalled this cycle")
+            self.log("Fetcher is stalled this cycle")
 
         next_pc = should_fetch.select(
             fetch_addr.bitcast(UInt(32)) + UInt(32)(4), fetch_addr.bitcast(UInt(32))
         ).bitcast(Bits(32))
 
-        log(
+        self.log(
             "PC=0x{:08x}, next_PC=0x{:08x}, should_fetch={}, on_br={}",
             fetch_addr,
             next_pc,

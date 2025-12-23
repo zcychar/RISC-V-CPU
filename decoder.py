@@ -1,5 +1,6 @@
 from assassyn.frontend import *
 from instruction import *
+from utils import Logger, DecoderLogEnabled
 
 
 class Decoder(Module):
@@ -11,6 +12,7 @@ class Decoder(Module):
             }
         )
         self.name = "D"
+        self.log = Logger(enabled=DecoderLogEnabled)
 
     @module.combinational
     def build(self, inst_from_icache: Array, rs: Module, revert_flag_cdb: Array):
@@ -18,7 +20,7 @@ class Decoder(Module):
 
         inst = inst_from_icache[0].bitcast(Bits(32))
 
-        log(
+        self.log(
             "valid={}, inst=0x{:08x}, pc=0x{:08x}",
             inst_valid_from_fi.bitcast(UInt(5)),
             inst,
@@ -26,7 +28,7 @@ class Decoder(Module):
         )
 
         signals = decode_logic(inst=inst)
-        log(
+        self.log(
             "memory={}, alu={}, cond={}, flip={}, is_branch={}, rs1=x{:02}, rs2=x{:02}, rd=x{:02}, imm=0x{:08x}, mem_oper_size={}, mem_oper_signed={}",
             signals.memory.bitcast(UInt(2)),
             signals.alu.bitcast(UInt(RV32I_ALU.CNT)),
@@ -42,7 +44,7 @@ class Decoder(Module):
         )
 
         with Condition(revert_flag_cdb[0]):
-            log(
+            self.log(
                 "Received revert signal, skipping decode"
             )
             
@@ -55,20 +57,20 @@ class Decoder(Module):
         target_pc = (fetch_pc_from_fi.bitcast(Int(32)) + signals.imm.bitcast(Int(32))).bitcast(Bits(32))
 
         with Condition(is_jal):
-            log(
+            self.log(
                 "Decoder detected JAL, updated_pc=0x{:08x}",
                 target_pc,
             )
 
         with Condition(is_branch):
-            log(
+            self.log(
                 "Decoder detected BRANCH, sending to BPU, pc=0x{:08x}, target_pc=0x{:08x}",
                 fetch_pc_from_fi,
                 target_pc,
             )
 
         with Condition(inst==Bits(32)(0x00000000)):
-            log(
+            self.log(
                 "Decoder detected NOP instruction"
             )
 
@@ -150,8 +152,9 @@ def decode_logic(inst):
             fmt += "| imm: 0x{:08x}  "
             args.append(imm)
 
+        my_log = Logger(enabled=DecoderLogEnabled)
         with Condition(eq):
-            log(fmt, *args)
+            my_log(fmt, *args)
 
     alu_valid = (alu == Bits(RV32I_ALU.CNT)(0)).select(
         Bits(1)(0), Bits(1)(1)
