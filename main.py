@@ -1,3 +1,13 @@
+from dataclasses import dataclass
+import re
+from unit_tests.tests import *
+import argparse
+from lsq import LSQ
+from rob import ROB
+from alu import ALU
+from rs import ReservationStation
+from decoder import Decoder
+from fetcher import Fetcher, FetcherImpl
 from assassyn.frontend import *
 from assassyn.backend import *
 from assassyn import utils
@@ -12,18 +22,6 @@ workspace = f"{current_path}/.workspace/"
 os.makedirs(workspace, exist_ok=True)
 
 sys.path.insert(0, current_path)
-from fetcher import Fetcher, FetcherImpl
-from decoder import Decoder
-from rs import ReservationStation
-from alu import ALU
-from rob import ROB
-from lsq import LSQ
-
-
-import argparse
-from unit_tests.tests import *
-import re
-from dataclasses import dataclass
 
 
 class Driver(Module):
@@ -174,7 +172,8 @@ def build_simulator(
         fetcher = Fetcher()
         pc_reg, pc_addr = fetcher.build()
 
-        icache = SRAM(width=32, depth=1 << depth_log, init_file=icache_init_file)
+        icache = SRAM(width=32, depth=1 << depth_log,
+                      init_file=icache_init_file)
         icache.name = "icache"
 
         ifetch_continue_flag = RegArray(Bits(1), 1, initializer=[1])
@@ -197,7 +196,8 @@ def build_simulator(
         lsq_bypass_sq_pos_to_rs = RegArray(Bits(32), 1)
         lsq_bypass_valid_to_rs = RegArray(Bits(1), 1)
 
-        dcache = SRAM(width=32, depth=1 << DCACHE_DEPTH_LOG, init_file=dcache_init_file)
+        dcache = SRAM(width=32, depth=1 << DCACHE_DEPTH_LOG,
+                      init_file=dcache_init_file)
         dcache.name = "dcache"
 
         lsb_out_valid_to_rob = RegArray(Bits(1), 1)
@@ -267,7 +267,7 @@ def build_simulator(
             icache.dout, rs, revert_flag_cdb
         )
 
-        bpu = TwoBitBPU()
+        bpu = GlobalHistoryBPU()
         predict_taken, predicted_pc = bpu.build(
             pc_addr_from_d=fetch_pc_from_d,
             target_pc_from_d=target_pc,
