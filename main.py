@@ -48,6 +48,8 @@ def make_bpu(kind: str):
         return AlwaysFalseBPU()
     if name in ("always_true"):
         return AlwaysTakenBPU()
+    if name in ("tage"):
+        return TageBPU()
     raise ValueError(f"Unsupported BPU kind: {kind}")
 
 
@@ -623,7 +625,8 @@ def main():
     )
     parser.add_argument(
         "--predictor",
-        choices=["tournament", "global", "two_bit", "always_false", "always_true"],
+        choices=["tournament", "global", "two_bit",
+                 "always_false", "always_true", "tage"],
         default="global",
         help="Choose branch predictor",
     )
