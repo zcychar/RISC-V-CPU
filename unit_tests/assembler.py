@@ -61,6 +61,12 @@ def lb(rd, rs1, imm):
 def sw(rs1, rs2, imm):
     return encode_s_type(0b0100011, 0b010, rs1, rs2, imm)
 
+def sh(rs1, rs2, imm):
+    return encode_s_type(0b0100011, 0b001, rs1, rs2, imm)
+
+def sb(rs1, rs2, imm):
+    return encode_s_type(0b0100011, 0b000, rs1, rs2, imm)
+
 def beq(rs1, rs2, imm):
     return encode_b_type(0b1100011, 0b000, rs1, rs2, imm)
 

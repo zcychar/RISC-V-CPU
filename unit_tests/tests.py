@@ -276,3 +276,85 @@ def sum_0_to_100_test():
         nop(),
         nop(),
     ]
+
+def store_byte_halfword_test():
+    """
+    Store Byte and Halfword Test
+    Test sb (store byte), sh (store halfword), and sw (store word) instructions.
+    Data segment starts at 0x10000.
+    """
+    return [
+        # Set up base address 0x10000
+        lui(1, 0x10),      # x1 = 0x10000 (base address for data segment)
+        
+        # Test value: 0x12345678
+        lui(2, 0x12345),   # x2 = 0x12345000
+        addi(2, 2, 0x678), # x2 = 0x12345678
+        
+        # Store word at 0x10000: Mem[0x10000] = 0x12345678
+        sw(1, 2, 0),
+        
+        # Store byte (lowest byte) at 0x10004: Mem[0x10004] = 0x78
+        sb(1, 2, 4),
+        
+        # Store halfword (lowest 2 bytes) at 0x10008: Mem[0x10008] = 0x5678
+        sh(1, 2, 8),
+        
+        # Load word from 0x10000 to verify
+        lw(3, 1, 0),       # x3 = Mem[0x10000] = 0x12345678
+        
+        # Load byte from 0x10004 to verify
+        lb(4, 1, 4),       # x4 = Mem[0x10004] = 0x78 (sign-extended)
+        
+        # Load halfword from 0x10008 to verify
+        lh(5, 1, 8),       # x5 = Mem[0x10008] = 0x5678 (sign-extended)
+        
+        # Test storing different bytes
+        addi(6, 0, 0xAB),  # x6 = 0xAB
+        sb(1, 6, 12),      # Mem[0x1000C] = 0xAB
+        
+        addi(7, 0, 0xCD),  # x7 = 0xCD
+        sb(1, 7, 13),      # Mem[0x1000D] = 0xCD
+        
+        addi(8, 0, 0xEF),  # x8 = 0xEF
+        sb(1, 8, 14),      # Mem[0x1000E] = 0xEF
+        
+        # Load word to see combined result: 0x00EFCDAB (little-endian)
+        lw(9, 1, 12),      # x9 = Mem[0x1000C]
+        
+        # Test storing halfwords
+        lui(10, 0xBEEF),   # x10 = 0xBEEF0000
+        addi(10, 10, -81), # x10 = 0xBEEFFFAF
+        sh(1, 10, 16),     # Mem[0x10010] = 0xFFAF
+        
+        # Load halfword back
+        lh(11, 1, 16),     # x11 = Mem[0x10010] = 0xFFFFFFAF (sign-extended)
+        
+        nop(),
+        nop(),
+        nop()
+    ]
+
+def store_byte_halfword_test_2():
+    return [
+        # Set up base address 0x10000
+        lui(1, 0x10),      # x1 = 0x10000 (base address for data segment)
+        
+        # Test value: 0x12345678
+        lui(2, 0x12345),   # x2 = 0x12345000
+        addi(3, 0, 0x54),   # x3 = 0x54
+        addi(2, 2, 0x678), # x2 = 0x12345678
+        
+        # Store word at 0x10000: Mem[0x10000] = 0x12345678
+        sw(1, 2, 0),
+        
+        # Store byte (lowest byte) at 0x10000: Mem[0x10000] = 0x54
+        sb(1, 3, 0),
+
+        # Load word from 0x10000 to verify
+        lw(4, 1, 0),       # x4 = Mem[0x10000] = 0x12345654
+
+        nop(),
+        nop(),
+        nop()
+    ]

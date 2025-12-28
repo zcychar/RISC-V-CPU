@@ -284,6 +284,7 @@ def build_simulator(
             valid_to_rs=lsq_bypass_valid_to_rs,
             update_sq_pos_to_rs=lsq_bypass_sq_pos_to_rs,
             mem_addr_to_rob=lsq_mem_addr_to_rob,
+            dout=dcache.dout
         )
 
         bpu_predicted_pc = RegArray(Bits(32), 1)
@@ -700,6 +701,8 @@ def main():
             "jalr",
             "jal_jalr",
             "sum_0_to_100",
+            "sb",
+            "sb2",
         ],
         default="default",
         help="Select test case",
@@ -789,6 +792,10 @@ def main():
         instructions = jal_jalr_combined_test()
     elif args.test == "sum_0_to_100":
         instructions = sum_0_to_100_test()
+    elif args.test == "sb":
+        instructions = store_byte_halfword_test()
+    elif args.test == "sb2":
+        instructions = store_byte_halfword_test_2()
 
     # 1. 创建测试程序
     print("\n[步骤 1] 创建测试程序")

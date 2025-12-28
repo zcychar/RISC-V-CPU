@@ -600,6 +600,8 @@ class ReservationStation(Module):
             rs2_val_from_rs=read_mux(vk_array_d, dispatch_index),
             imm_val_from_rs=imm_array[dispatch_index],
             memory_from_rs=memory_array[dispatch_index],
+            mem_oper_size_from_rs=mem_oper_size_array[dispatch_index],
+            mem_oper_signed_from_rs=mem_oper_signed_array[dispatch_index],
             lsq_pos_from_rs=lsq_poses_array[dispatch_index],
             lq_pos_from_rs=lq_poses_array[dispatch_index],
             sq_pos_from_rs=sq_poses_array[dispatch_index],

@@ -15,6 +15,8 @@ class LSQ(Module):
                 "rs2_val_from_rs": Port(Bits(32)),
                 "imm_val_from_rs": Port(Bits(32)),
                 "memory_from_rs": Port(Bits(2)),
+                "mem_oper_size_from_rs": Port(Bits(2)),
+                "mem_oper_signed_from_rs": Port(Bits(1)),
                 "lsq_pos_from_rs": Port(Bits(32)),
                 "lq_pos_from_rs": Port(Bits(32)),
                 "sq_pos_from_rs": Port(Bits(32)),
@@ -37,6 +39,7 @@ class LSQ(Module):
         update_sq_pos_to_rs: Array,
         valid_to_rs: Array,
         revert_flag_cdb: Array,
+        dout: Array,
     ):
         (
             has_entry_from_rs,
@@ -44,6 +47,8 @@ class LSQ(Module):
             rs2_val_from_rs,
             imm_val_from_rs,
             memory_from_rs,
+            mem_oper_size_from_rs,
+            mem_oper_signed_from_rs,
             lsq_pos_from_rs,
             lq_pos_from_rs,
             sq_pos_from_rs,
@@ -69,6 +74,9 @@ class LSQ(Module):
         # sq_lsq_pos_array = RegArray(Bits(32), LSQ_SIZE)
         sq_is_committed_array_d = [RegArray(Bits(1), 1) for _ in range(LSQ_SIZE)]
         sq_lsq_pos_array_d = [RegArray(Bits(32), 1) for _ in range(LSQ_SIZE)]
+        sq_is_waiting = RegArray(Bits(1), 1)
+        sq_mem_oper_size_array = RegArray(Bits(2), LSQ_SIZE)
+        sq_mem_oper_signed_array = RegArray(Bits(1), LSQ_SIZE)
 
         # Commit SQ entries from ROB
         with Condition(commit_valid_from_rob[0]):
@@ -174,6 +182,8 @@ class LSQ(Module):
                 sq_data_array[index_trucated] = rs2_val_from_rs
                 write_1hot(sq_is_committed_array_d, index, Bits(1)(0))
                 write_1hot(sq_lsq_pos_array_d, index, lsq_pos_from_rs)
+                sq_mem_oper_size_array[index_trucated] = mem_oper_size_from_rs
+                sq_mem_oper_signed_array[index_trucated] = mem_oper_signed_from_rs
                 self.log(
                     "Append SQ Entry: index={}, addr=0x{:08x}, data=0x{:08x}, lsq_pos={}",
                     index.bitcast(UInt(32)),
@@ -181,7 +191,6 @@ class LSQ(Module):
                     rs2_val_from_rs.bitcast(UInt(32)),
                     lsq_pos_from_rs.bitcast(UInt(32)),
                 )
-
         # Execute head entry
         lq_head_pos = lq_head[0].bitcast(Bits(LSQ_SIZE_LOG))
         sq_head_pos = sq_head[0].bitcast(Bits(LSQ_SIZE_LOG))
@@ -197,11 +206,15 @@ class LSQ(Module):
         )
 
         load_flag = (
-            read_mux(lq_busy_array_d, lq_head[0])
+            (read_mux(lq_busy_array_d, lq_head[0])
             & (lq_lsq_pos_array[lq_head_pos] == lsq_head[0])
             & (~store_flag)
-            & (~revert_flag_cdb[0])
+            & (~revert_flag_cdb[0]))
         )
+
+        load_for_store_flag = (store_flag & (sq_mem_oper_size_array[sq_head_pos] != Bits(2)(2)) & (~sq_is_waiting[0]))
+        store_flag = store_flag & (sq_mem_oper_size_array[sq_head_pos] == Bits(2)(2))
+
         requested_addr = load_flag.select(
             lq_addr_array[lq_head_pos][2 : 2 + depth_log - 1].bitcast(UInt(depth_log)),
             sq_addr_array[sq_head_pos][2 : 2 + depth_log - 1].bitcast(UInt(depth_log)),
@@ -252,15 +265,74 @@ class LSQ(Module):
                     sq_data_array[sq_head_pos],
                     read_mux(sq_is_committed_array_d, sq_head[0]),
                 )
-                sq_head[0] = (sq_head[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
-                    Bits(32)
-                ) & Bits(32)(LSQ_SIZE - 1)
-                mem_addr_to_rob[0] = sq_addr_array[sq_head_pos]
+                with Condition(sq_mem_oper_size_array[sq_head_pos] == Bits(2)(2)):
+                    sq_head[0] = (sq_head[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
+                        Bits(32)
+                    ) & Bits(32)(LSQ_SIZE - 1)
+                    mem_addr_to_rob[0] = sq_addr_array[sq_head_pos]
+                
+                with Condition(sq_mem_oper_size_array[sq_head_pos] != Bits(2)(2)):
+                    self.log(
+                        "Store is waiting for next cycle to write dcache due to size < 4 bytes"
+                    )
 
+        with Condition(sq_is_waiting[0]):
+            self.log(
+                "Completing pending store: SQ index={}, addr=0x{:08x}, data=0x{:08x}",
+                sq_head[0].bitcast(UInt(32)),
+                sq_addr_array[sq_head_pos],
+                sq_data_array[sq_head_pos],
+            )
+            with Condition(read_mux(sq_lsq_pos_array_d, sq_head[0]) != Bits(32)(0)):
+                lsq_head[0] = (lsq_head[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
+                    Bits(32)
+                )
+            write_1hot(sq_busy_array_d, sq_head[0], Bits(1)(0))
+            sq_head[0] = (sq_head[0].bitcast(Int(32)) + Int(32)(1)).bitcast(
+                Bits(32)
+            ) & Bits(32)(LSQ_SIZE - 1)
+            mem_addr_to_rob[0] = sq_addr_array[sq_head_pos]
+            sq_is_waiting[0] = Bits(1)(0)
+
+        with Condition(load_for_store_flag):
+            self.log(
+                "Load for Store: SQ index={}, addr=0x{:08x}",
+                sq_head[0].bitcast(UInt(32)),
+                sq_addr_array[sq_head_pos],
+            )
+            sq_is_waiting[0] = Bits(1)(1)
+                    
+        rdata = dout[0]
+        store_val = sq_data_array[sq_head_pos]
+        offset = sq_addr_array[sq_head_pos][0:1]
+        size = sq_mem_oper_size_array[sq_head_pos]
+
+        wdata_byte = Bits(32)(0)
+        results = [Bits(32)(0)] * 4
+        results[0] = concat(rdata[8:31], store_val[0:7])
+        results[1] = concat(rdata[16:31], store_val[0:7], rdata[0:7])
+        results[2] = concat(rdata[24:31], store_val[0:7], rdata[0:15])
+        results[3] = concat(store_val[0:7], rdata[0:23])
+
+        offset_exponent = Bits(4)(1) << offset.bitcast(UInt(1))
+        wdata_byte = offset_exponent.select1hot(*results)
+
+        wdata_half = offset[1:1].select(
+            concat(store_val[0:15], rdata[0:15]),
+            concat(rdata[16:31], store_val[0:15])
+        )
+
+        store_val = (size == Bits(2)(0)).select(
+            wdata_byte,
+            (size == Bits(2)(1)).select(
+                wdata_half,
+                store_val
+            )
+        )
 
         dcache.build(
-            we=store_flag,
-            re=load_flag,
+            we=store_flag | sq_is_waiting[0],
+            re=load_flag | load_for_store_flag,
             addr=requested_addr,
-            wdata=sq_data_array[sq_head_pos],
+            wdata=store_val,
         )
