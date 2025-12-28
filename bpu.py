@@ -457,6 +457,7 @@ class TageBPU(Downstream):
         )
 
     def _fold(self, value_u: Value, width: int):
+        """XOR-fold a UInt value down to 'width' bits."""
         if width <= 0:
             return Bits(1)(0)
         mask = (1 << width) - 1
@@ -469,18 +470,18 @@ class TageBPU(Downstream):
         return Bits(width)(acc.bitcast(UInt(width)))
 
     def _pack_entry(self, tag: Value, ctr: Value, u: Value):
-        total = self.tag_bits + 3 + 1
+        total = self.tag_bits + 3 + 2
         assembled = (
-            (tag.bitcast(UInt(total)) << UInt(total)(4))
-            | (ctr.bitcast(UInt(total)) << UInt(total)(1))
+            (tag.bitcast(UInt(total)) << UInt(total)(5))
+            | (ctr.bitcast(UInt(total)) << UInt(total)(2))
             | u.bitcast(UInt(total))
         )
         return Bits(total)(assembled)
 
     def _entry_fields(self, entry: Value):
-        u = entry[0:0]
-        ctr = entry[1:3]
-        tag = entry[4:4 + self.tag_bits - 1]
+        u = entry[0:1]          # 2-bit usefulness
+        ctr = entry[2:4]        # 3-bit counter
+        tag = entry[5:5 + self.tag_bits - 1]
         return tag, ctr, u
 
     @downstream.combinational
@@ -501,7 +502,7 @@ class TageBPU(Downstream):
         """
         base_table = RegArray(Bits(2), self.base_size)
         tagged_tables = [
-            RegArray(Bits(self.tag_bits + 3 + 1), sz) for sz in self.tag_sizes
+            RegArray(Bits(self.tag_bits + 3 + 2), sz) for sz in self.tag_sizes
         ]
         ghr = RegArray(Bits(self.ghr_bits), 1)
         meta = RegArray(Bits(self.meta_width), 1 << self.meta_idx_bits)
@@ -536,7 +537,7 @@ class TageBPU(Downstream):
             ctrs.append(ctr_rd)
             us.append(u_rd)
 
-        # previder: 1st choice, alt: 2nd choice
+        # provider: 1st choice, alt: 2nd choice
         provider_bank = Bits(2)(0)
         provider_ctr = base_ctr
         provider_idx = base_idx
@@ -547,7 +548,7 @@ class TageBPU(Downstream):
         alt_pred = base_ctr[1:1]
 
         # the alt is chosen after provider is chosen so it's second best
-        for bank_id in reversed(range(self.num_banks)):
+        for bank_id in reversed(range(self.num_banks)):  # highest hist first
             choose_provider = matches[bank_id] & (provider_bank == Bits(2)(0))
             provider_bank = choose_provider.select(
                 Bits(2)(bank_id + 1), provider_bank)
@@ -677,36 +678,50 @@ class TageBPU(Downstream):
                         )
                         new_u = u_rd
                         with Condition(provider_correct & (~alt_correct)):
-                            new_u = Bits(1)(1)
-                        with Condition((~provider_correct) & alt_correct & (u_rd != Bits(1)(0))):
-                            new_u = (u_rd.bitcast(Int(1)) -
-                                     Int(1)(1)).bitcast(Bits(1))
+                            new_u = Bits(2)(3)
+                        with Condition((~provider_correct) & alt_correct & (u_rd != Bits(2)(0))):
+                            new_u = (u_rd.bitcast(Int(2)) -
+                                     Int(2)(1)).bitcast(Bits(2))
                         tagged_tables[bank_id][idx_narrow] = self._pack_entry(
                             tag_rd, new_ctr, new_u)
 
-            # Allocation on mispredict, priority longest -> shortest
-            alloc_mask = Bits(1)(1)
-            for bank_id in reversed(range(self.num_banks)):
-                cond_alloc = (provider_correct == Bits(1)(0)) & alloc_mask & (
+            # Allocation on mispredict: prefer shortest longer history with u==0; if none, age u in longer banks.
+            found_zero = Bits(1)(0)
+            for bank_id in range(self.num_banks):
+                cond_longer = (provider_correct == Bits(1)(0)) & (
                     Bits(2)(bank_id + 1) > provider_bank_m)
+                idx_full = idx_list[bank_id]
+                idx_narrow = idx_full[0: self.idx_bits[bank_id] - 1]
+                _, _, u_rd = self._entry_fields(
+                    tagged_tables[bank_id][idx_narrow])
+                found_zero = found_zero | (cond_longer & (u_rd == Bits(2)(0)))
+
+            allocated = Bits(1)(0)
+            for bank_id in range(self.num_banks):  # shortest longer first
+                cond_longer = (provider_correct == Bits(1)(0)) & (
+                    Bits(2)(bank_id + 1) > provider_bank_m)
+                idx_full = idx_list[bank_id]
+                idx_narrow = idx_full[0: self.idx_bits[bank_id] - 1]
+                tag_val = tag_list[bank_id]
+                entry = tagged_tables[bank_id][idx_narrow]
+                tag_rd, ctr_rd, u_rd = self._entry_fields(entry)
+
+                cond_alloc = cond_longer & (found_zero == Bits(1)(1)) & (allocated == Bits(1)(0)) & (u_rd == Bits(2)
+                                                                                                     (0))
                 with Condition(cond_alloc):
-                    idx_full = idx_list[bank_id]
-                    idx_narrow = idx_full[0: self.idx_bits[bank_id] - 1]
-                    tag_val = tag_list[bank_id]
-                    entry = tagged_tables[bank_id][idx_narrow]
-                    tag_rd, ctr_rd, u_rd = self._entry_fields(entry)
-                    with Condition(u_rd == Bits(1)(0)):
-                        weak_ctr = actual_taken_flag.select(
-                            Bits(3)(4), Bits(3)(3))
-                        tagged_tables[bank_id][idx_narrow] = self._pack_entry(
-                            tag_val, weak_ctr, Bits(1)(0))
-                    with Condition(u_rd != Bits(1)(0)):
-                        tagged_tables[bank_id][idx_narrow] = self._pack_entry(
-                            tag_rd,
-                            ctr_rd,
-                            (u_rd.bitcast(Int(1)) - Int(1)(1)).bitcast(Bits(1)),
-                        )
-                alloc_mask = alloc_mask & (~cond_alloc)
+                    weak_ctr = actual_taken_flag.select(Bits(3)(4), Bits(3)(3))
+                    tagged_tables[bank_id][idx_narrow] = self._pack_entry(
+                        tag_val, weak_ctr, Bits(2)(0))
+                allocated = allocated | cond_alloc
+
+                cond_age = cond_longer & (
+                    found_zero == Bits(1)(0)) & (u_rd != Bits(2)(0))
+                with Condition(cond_age):
+                    tagged_tables[bank_id][idx_narrow] = self._pack_entry(
+                        tag_rd,
+                        ctr_rd,
+                        (u_rd.bitcast(Int(2)) - Int(2)(1)).bitcast(Bits(2)),
+                    )
 
             # GHR update
             ghr_old = ghr[0].bitcast(UInt(self.ghr_bits))

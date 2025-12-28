@@ -172,6 +172,19 @@ def discover_workload_cases() -> list[WorkloadCase]:
     return cases
 
 
+def parse_last_cycle_from_log(log_path: str) -> int:
+    last_cycle = None
+    pat = re.compile(r"Cycle\s*@\s*([0-9]+)(?:\.\d+)?")
+    with open(log_path, "r") as f:
+        for line in f:
+            m = pat.search(line)
+            if m:
+                last_cycle = int(m.group(1))
+    if last_cycle is None:
+        raise ValueError(f"no Cycle tag found in {log_path}")
+    return last_cycle
+
+
 def parse_last_rs_value_from_log(log_path: str) -> int:
     if not os.path.exists(log_path):
         raise FileNotFoundError(f"找不到日志文件: {log_path}")
@@ -223,7 +236,8 @@ def build_simulator(
         fetcher = Fetcher()
         pc_reg, pc_addr = fetcher.build()
 
-        icache = SRAM(width=32, depth=1 << depth_log, init_file=icache_init_file)
+        icache = SRAM(width=32, depth=1 << depth_log,
+                      init_file=icache_init_file)
         icache.name = "icache"
 
         ifetch_continue_flag = RegArray(Bits(1), 1, initializer=[1])
@@ -250,7 +264,6 @@ def build_simulator(
             valid_out=mul_valid_to_rob,
         )
 
-
         rob_bypass_valid_to_if = RegArray(Bits(1), 1)
         rob_bypass_pc_to_if = RegArray(Bits(32), 1)
         rob_bypass_is_jump_to_if = RegArray(Bits(1), 1)
@@ -263,7 +276,8 @@ def build_simulator(
         lsq_bypass_sq_pos_to_rs = RegArray(Bits(32), 1)
         lsq_bypass_valid_to_rs = RegArray(Bits(1), 1)
 
-        dcache = SRAM(width=32, depth=1 << DCACHE_DEPTH_LOG, init_file=dcache_init_file)
+        dcache = SRAM(width=32, depth=1 << DCACHE_DEPTH_LOG,
+                      init_file=dcache_init_file)
         dcache.name = "dcache"
 
         lsb_out_valid_to_rob = RegArray(Bits(1), 1)
@@ -513,7 +527,7 @@ def run_all_workloads(
 
     print("=" * 70)
     print(f"全量 workload 回归: {', '.join([c.name for c in cases])}")
-    print(f"最大周期数: {max_cycles}")
+    print(f"最大周期数: {max_cycles} 分支预测: {bpu_kind}")
     print("=" * 70)
 
     print("\n[步骤 0] 编译仿真器（一次）")
@@ -528,6 +542,7 @@ def run_all_workloads(
     passed = 0
     failed = 0
     failures: list[str] = []
+    cycle_counts: list[str] = []
 
     print("\n[步骤 1] 运行 Python 仿真器并校验（先跑完所有用例）")
     for case in cases:
@@ -574,6 +589,10 @@ def run_all_workloads(
             failed += 1
             failures.append(f"{case.name}: got={got} expected={expected}")
 
+        cycles = parse_last_cycle_from_log(f"{workspace}/simulation.log")
+        print(f"Total cycles={cycles}")
+        cycle_counts.append(f"{case.name}: cycle={cycles}")
+
     # 第二阶段：统一跑 Verilator（若可用）
     if skip_verilator:
         print("\n[步骤 2] 跳过 Verilator：已通过 --skip-verilator 禁用")
@@ -605,6 +624,8 @@ def run_all_workloads(
 
     print("\n" + "=" * 70)
     print(f"回归结果: PASS {passed}, FAIL {failed}")
+    for item in cycle_counts:
+        print(f"{item}")
     if failures:
         print("失败列表:")
         for item in failures:
