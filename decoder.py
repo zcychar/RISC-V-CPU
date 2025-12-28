@@ -29,7 +29,7 @@ class Decoder(Module):
 
         signals = decode_logic(inst=inst)
         self.log(
-            "memory={}, alu={}, cond={}, flip={}, is_branch={}, rs1=x{:02}, rs2=x{:02}, rd=x{:02}, imm=0x{:08x}, mem_oper_size={}, mem_oper_signed={}",
+            "memory={}, alu={}, cond={}, flip={}, is_branch={}, rs1=x{:02}, rs2=x{:02}, rd=x{:02}, imm=0x{:08x}, mem_oper_size={}, mem_oper_signed={}, is_mul={}",
             signals.memory.bitcast(UInt(2)),
             signals.alu.bitcast(UInt(RV32I_ALU.CNT)),
             signals.cond.bitcast(UInt(RV32I_ALU.CNT)),
@@ -41,6 +41,7 @@ class Decoder(Module):
             signals.imm,
             signals.mem_oper_size.bitcast(UInt(2)),
             signals.mem_oper_signed.bitcast(UInt(1)),
+            signals.is_mul.bitcast(UInt(1))
         )
 
         with Condition(revert_flag_cdb[0]):
@@ -201,6 +202,8 @@ def decode_logic(inst):
     imm = eqs["lui"].select(views[UInst].imm(False).concat(Bits(12)(0)), imm)
     imm = eqs["auipc"].select(views[UInst].imm(False).concat(Bits(12)(0)), imm)
 
+    is_mul = eqs["mul"] | eqs["mulh"] | eqs["mulhsu"] | eqs["mulhu"]
+
     return DecodeSignals.bundle(
         memory=memory,
         alu=alu,
@@ -228,4 +231,5 @@ def decode_logic(inst):
         is_branch_inst=is_type[BInst],
         is_ebreak=eqs["ebreak"],
         is_ecall=eqs["ecall"],
+        is_mul=is_mul,
     )

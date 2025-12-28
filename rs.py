@@ -34,6 +34,7 @@ class ReservationStation(Module):
         rob: Module,
         lsq: Module,
         alu: Module,
+        mul: Module,
         ifetch_continue_flag: Array,
         revert_flag_cdb: Array,
     ):
@@ -119,6 +120,8 @@ class ReservationStation(Module):
         is_branch_array = RegArray(Bits(1), RS_SIZE)
         is_ebreak_array = RegArray(Bits(1), RS_SIZE)
         is_ecall_array = RegArray(Bits(1), RS_SIZE)
+        is_mul_array = RegArray(Bits(1), RS_SIZE)
+
         cond_array = RegArray(Bits(RV32I_ALU.CNT), RS_SIZE)
         flip_array = RegArray(Bits(1), RS_SIZE)
         # reorder_array = RegArray(Bits(32), 32)
@@ -323,6 +326,7 @@ class ReservationStation(Module):
             is_branch_array[newly_append_ind] = signals.is_branch_inst
             is_ebreak_array[newly_append_ind] = signals.is_ebreak
             is_ecall_array[newly_append_ind] = signals.is_ecall
+            is_mul_array[newly_append_ind] = signals.is_mul
             cond_array[newly_append_ind] = signals.cond
             flip_array[newly_append_ind] = signals.flip
 
@@ -611,6 +615,7 @@ class ReservationStation(Module):
             & ~is_jalr_array[dispatch_index]
             & ~is_auipc_array[dispatch_index]
             & ~is_lui_array[dispatch_index]
+            & ~is_mul_array[dispatch_index]
         )
 
         alu_a = vj_valid_array[dispatch_index].select(
@@ -634,4 +639,17 @@ class ReservationStation(Module):
             alu_a_from_rs=alu_a,
             alu_b_from_rs=alu_b,
             rob_idx_from_rs=rob_dest_array[dispatch_index],
+        )
+
+        # Send to Multiplier
+        mul_out_flag = dispatch_valid & is_mul_array[dispatch_index]
+        with Condition(mul_out_flag):
+            self.log("Dispatching RS entry {} to Multiplier", dispatch_index)
+        
+        mul.async_called(
+            valid=mul_out_flag,
+            a=read_mux(vj_array_d, dispatch_index),
+            b=read_mux(vk_array_d, dispatch_index),
+            tag=rob_dest_array[dispatch_index],
+            alu=alu_array[dispatch_index],
         )

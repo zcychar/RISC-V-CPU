@@ -58,6 +58,9 @@ class ROB(Module):
         value_from_dcache: Array,
         mem_addr_from_lsq: Array,
         rob_dest_from_lsq: Array,
+        mul_valid_from_mul: Array,
+        mul_value_from_mul: Array,
+        mul_rob_index_from_mul: Array,
         commit_sq_pos_to_lsq: Array,
         commit_valid_to_lsq: Array,
     ):
@@ -319,6 +322,18 @@ class ROB(Module):
                     flip_from_rs_array[alu_idx],
                 )
 
+            # receive from MUL
+            with Condition(mul_valid_from_mul[0] & ~revert_flag):
+                mul_idx = mul_rob_index_from_mul[0].bitcast(Bits(ROB_SIZE_LOG))
+                write_1hot(ready_array_d, mul_idx, Bits(1)(1))
+                write_1hot(value_array_d, mul_idx, mul_value_from_mul[0])
+                self.log(
+                    "Received from MUL idx={}, value=0x{:08x}, flip={}",
+                    mul_idx,
+                    mul_value_from_mul[0],
+                    flip_from_rs_array[mul_idx],
+                )
+
             # receive from LSQ
             with Condition(in_valid_from_lsq[0] & ~revert_flag):
                 lsq_idx = (rob_dest_from_lsq[0] & Bits(32)(ROB_SIZE - 1)).bitcast(
@@ -334,17 +349,16 @@ class ROB(Module):
                 byte_ext = byte_ext_bit.select(Bits(24)(0xFFFFFF), Bits(24)(0))
                 byte_val = concat(byte_ext, value[0:7])
                 for i in range(4):
-                    byte_offset_flag = (offset == Bits(2)(i))
+                    byte_offset_flag = offset == Bits(2)(i)
                     byte_val = byte_offset_flag.select(
                         concat(byte_ext, value[i << 3 : (i << 3) + 7]), byte_val
                     )
 
                 half_ext_bit = sign & value[15:15]
                 half_ext = half_ext_bit.select(Bits(16)(0xFFFF), Bits(16)(0))
-                half_val = offset[0:0].select(concat(half_ext, value[0:15]) , concat(half_ext, value[16:31]))
-                
-
-                
+                half_val = offset[0:0].select(
+                    concat(half_ext, value[0:15]), concat(half_ext, value[16:31])
+                )
 
                 final_val = (size == Bits(2)(0)).select(
                     byte_val, (size == Bits(2)(1)).select(half_val, value)

@@ -17,6 +17,7 @@ import struct
 import subprocess
 from contextlib import redirect_stdout, redirect_stderr
 from bpu import *
+from multiplier import BoothEncoder, CompressStage1, CompressStage2, FinalAdder
 
 current_path = os.path.dirname(os.path.abspath(__file__))
 workspace = f"{current_path}/.workspace/"
@@ -233,6 +234,23 @@ def build_simulator(
         alu = ALU()
         alu.build(alu_value_to_rob, alu_index_to_rob, alu_valid_to_rob)
 
+        mul_value_to_rob = RegArray(Bits(32), 1)
+        mul_valid_to_rob = RegArray(Bits(1), 1)
+        mul_index_to_rob = RegArray(Bits(32), 1)
+        booth_encoder = BoothEncoder()
+        compress_stage1 = CompressStage1()
+        compress_stage2 = CompressStage2()
+        final_adder = FinalAdder()
+        booth_encoder.build(compress_stage1)
+        compress_stage1.build(compress_stage2)
+        compress_stage2.build(final_adder)
+        final_adder.build(
+            result=mul_value_to_rob,
+            tag_out=mul_index_to_rob,
+            valid_out=mul_valid_to_rob,
+        )
+
+
         rob_bypass_valid_to_if = RegArray(Bits(1), 1)
         rob_bypass_pc_to_if = RegArray(Bits(32), 1)
         rob_bypass_is_jump_to_if = RegArray(Bits(1), 1)
@@ -295,6 +313,9 @@ def build_simulator(
             commit_valid_to_lsq=rob_commit_valid_to_lsq,
             need_update_to_rs=rob_bypass_need_update_to_rs,
             mem_addr_from_lsq=lsq_mem_addr_to_rob,
+            mul_valid_from_mul=mul_valid_to_rob,
+            mul_value_from_mul=mul_value_to_rob,
+            mul_rob_index_from_mul=mul_index_to_rob,
         )
 
         rs = ReservationStation()
@@ -310,6 +331,7 @@ def build_simulator(
             rob=rob,
             lsq=lsq,
             alu=alu,
+            mul=booth_encoder,
             revert_flag_cdb=revert_flag_cdb,
         )
 

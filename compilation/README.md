@@ -8,3 +8,7 @@ To use these files, you will need a RISC-V toolchain installed on your system.
   ./compile.sh program
   ```
 - Then you can find the generated files in the `program` directory.
+- Use `compile_rv32i_zmmul.sh` instead if you want to compile with the `Zmmul` extension enabled:
+  ```bash
+  ./compile_rv32i_zmmul.sh program
+  ```
