@@ -467,7 +467,7 @@ class TageBPU(Downstream):
             acc = acc ^ ((value_u >> UInt(self.ghr_bits)(shift))
                          & UInt(self.ghr_bits)(mask))
             shift += width
-        return Bits(width)(acc.bitcast(UInt(width)))
+        return acc.bitcast(UInt(width))
 
     def _pack_entry(self, tag: Value, ctr: Value, u: Value):
         total = self.tag_bits + 3 + 2
@@ -476,7 +476,7 @@ class TageBPU(Downstream):
             | (ctr.bitcast(UInt(total)) << UInt(total)(2))
             | u.bitcast(UInt(total))
         )
-        return Bits(total)(assembled)
+        return (assembled).bitcast(Bits(total))
 
     def _entry_fields(self, entry: Value):
         u = entry[0:1]          # 2-bit usefulness
@@ -552,9 +552,12 @@ class TageBPU(Downstream):
             choose_provider = matches[bank_id] & (provider_bank == Bits(2)(0))
             provider_bank = choose_provider.select(
                 Bits(2)(bank_id + 1), provider_bank)
-            provider_ctr = choose_provider.select(ctrs[bank_id], provider_ctr)
-            provider_idx = choose_provider.select(idxs[bank_id], provider_idx)
-            provider_tag = choose_provider.select(tags[bank_id], provider_tag)
+            provider_ctr = choose_provider.select(
+                ctrs[bank_id], provider_ctr.bitcast(Bits(3)))
+            provider_idx = choose_provider.select(
+                idxs[bank_id], provider_idx.bitcast(Bits(self.idx_bits[bank_id])))
+            provider_tag = choose_provider.select(
+                tags[bank_id], provider_tag.bitcast(Bits(self.tag_bits)))
             provider_pred = choose_provider.select(
                 ctrs[bank_id][2:2], provider_pred)
             choose_alt = matches[bank_id] & (
@@ -562,7 +565,10 @@ class TageBPU(Downstream):
             alt_bank = choose_alt.select(Bits(2)(bank_id + 1), alt_bank)
             alt_pred = choose_alt.select(ctrs[bank_id][2:2], alt_pred)
 
-        final_pred_taken = provider_pred
+        provider_weak = (provider_ctr >= Bits(3)(3)) & (
+            provider_ctr <= Bits(3)(4))
+        use_alt = provider_weak & (alt_bank != Bits(2)(0))
+        final_pred_taken = use_alt.select(alt_pred, provider_pred)
         predicted_pc_addr = final_pred_taken.select(
             target_pc_from_d, pc_plus_4)
 
@@ -574,11 +580,7 @@ class TageBPU(Downstream):
         meta_idx = pc_addr_from_d[2: 2 + self.meta_idx_bits - 1]
         idx_pad = []
         for idx_val in idxs:
-            idx_pad.append(
-                Bits(self.max_idx_bits)(
-                    idx_val.bitcast(UInt(self.max_idx_bits))
-                )
-            )
+            idx_pad.append(idx_val.bitcast(Bits(self.max_idx_bits)))
         while len(idx_pad) < self.num_banks:
             idx_pad.append(Bits(self.max_idx_bits)(0))
         tag_pad = tags + [Bits(self.tag_bits)(0)] * \
@@ -589,11 +591,9 @@ class TageBPU(Downstream):
 
         def insert(val: Value, width: int):
             nonlocal acc, off
-            acc_u = acc.bitcast(UInt(self.meta_width))
-            acc = Bits(self.meta_width)(
-                acc_u
-                | (val.bitcast(UInt(self.meta_width)) << UInt(self.meta_width)(off))
-            )
+            acc_u = acc.bitcast(Bits(self.meta_width))
+            acc = acc_u | (val.bitcast(Bits(self.meta_width))
+                           << Bits(self.meta_width)(off))
             off += width
 
         insert(provider_pred, 1)
@@ -615,10 +615,10 @@ class TageBPU(Downstream):
             meta_rd = meta[meta_idx_c].bitcast(UInt(self.meta_width))
 
             def extract(width: int, shift: int):
-                return Bits(width)(
+                return (
                     (meta_rd >> UInt(self.meta_width)(shift))
                     & UInt(self.meta_width)((1 << width) - 1)
-                )
+                ).bitcast(Bits(width))
 
             off_r = 0
             provider_pred_m = extract(1, off_r)
@@ -677,11 +677,10 @@ class TageBPU(Downstream):
                             new_ctr,
                         )
                         new_u = u_rd
-                        with Condition(provider_correct & (~alt_correct)):
-                            new_u = Bits(2)(3)
-                        with Condition((~provider_correct) & alt_correct & (u_rd != Bits(2)(0))):
-                            new_u = (u_rd.bitcast(Int(2)) -
-                                     Int(2)(1)).bitcast(Bits(2))
+                        new_u = (provider_correct & (~alt_correct)
+                                 ).select(Bits(2)(3), new_u)
+                        new_u = ((~provider_correct) & alt_correct & (u_rd != Bits(2)(0))).select((u_rd.bitcast(Int(2)) -
+                                                                                                   Int(2)(1)).bitcast(Bits(2)), new_u)
                         tagged_tables[bank_id][idx_narrow] = self._pack_entry(
                             tag_rd, new_ctr, new_u)
 
@@ -728,8 +727,8 @@ class TageBPU(Downstream):
             ghr_shifted = (ghr_old << UInt(self.ghr_bits)(
                 1)) | actual_taken_flag.bitcast(UInt(self.ghr_bits))
             ghr_mask = (1 << self.ghr_bits) - 1
-            ghr_new = Bits(self.ghr_bits)(
-                ghr_shifted & UInt(self.ghr_bits)(ghr_mask))
+            ghr_new = (ghr_shifted & UInt(self.ghr_bits)(
+                ghr_mask)).bitcast(Bits(self.ghr_bits))
             ghr[0] = ghr_new
 
             self.log(
@@ -741,4 +740,8 @@ class TageBPU(Downstream):
                 ghr_new.bitcast(UInt(self.ghr_bits)),
             )
 
-        return predict_taken[0], predicted_pc[0]
+        predict_taken_flag = is_branch_from_d.select(
+            final_pred_taken, Bits(1)(0))
+        predicted_pc_addr = is_branch_from_d.select(
+            predicted_pc_addr, pc_plus_4)
+        return predict_taken_flag, predicted_pc_addr

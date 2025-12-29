@@ -218,28 +218,29 @@ def parse_stats_from_log(log_path: str) -> dict:
         "correctly_predicted_branches": 0,
         "accuracy": 0.0
     }
-    
+
     if not os.path.exists(log_path):
         return stats
 
     with open(log_path, "r") as f:
         content = f.read()
-        
+
     m = re.search(r"Committed Instructions:\s*(\d+)", content)
     if m:
         stats["committed_instructions"] = int(m.group(1))
-        
+
     m = re.search(r"Total Branches:\s*(\d+)", content)
     if m:
         stats["total_branches"] = int(m.group(1))
-        
+
     m = re.search(r"Correctly Predicted Branches:\s*(\d+)", content)
     if m:
         stats["correctly_predicted_branches"] = int(m.group(1))
-        
+
     if stats["total_branches"] > 0:
-        stats["accuracy"] = stats["correctly_predicted_branches"] / stats["total_branches"]
-        
+        stats["accuracy"] = stats["correctly_predicted_branches"] / \
+            stats["total_branches"]
+
     return stats
 
 
@@ -271,7 +272,6 @@ def build_simulator(
         commit_counter = RegArray(Int(32), 1)
         prediction_counter = RegArray(Int(32), 1)
         prediction_correction_counter = RegArray(Int(32), 1)
-        
 
         icache = SRAM(width=32, depth=1 << depth_log,
                       init_file=icache_init_file)
@@ -587,7 +587,7 @@ def run_all_workloads(
     failed = 0
     failures: list[str] = []
     cycle_counts: list[str] = []
-    
+
     all_stats = []
 
     print("\n[步骤 1] 运行 Python 仿真器并校验（先跑完所有用例）")
@@ -639,7 +639,7 @@ def run_all_workloads(
         cycles = parse_last_cycle_from_log(log_file)
         print(f"Total cycles={cycles}")
         cycle_counts.append(f"{case.name}: cycle={cycles}")
-        
+
         # 收集统计信息
         if stat_file:
             stats = parse_stats_from_log(log_file)
@@ -652,9 +652,11 @@ def run_all_workloads(
         try:
             with open(stat_file, "w") as f:
                 # 写入 CSV 头
-                f.write("workload,cycles,committed_instructions,total_branches,correctly_predicted_branches,accuracy\n")
+                f.write(
+                    "workload,cycles,committed_instructions,total_branches,correctly_predicted_branches,accuracy\n")
                 for s in all_stats:
-                    f.write(f"{s['name']},{s['cycles']},{s['committed_instructions']},{s['total_branches']},{s['correctly_predicted_branches']},{s['accuracy']:.4f}\n")
+                    f.write(
+                        f"{s['name']},{s['cycles']},{s['committed_instructions']},{s['total_branches']},{s['correctly_predicted_branches']},{s['accuracy']:.4f}\n")
             print(f"\n✓ 统计信息已写入: {stat_file}")
         except Exception as e:
             print(f"\n✗ 写入统计文件失败: {e}")
@@ -912,6 +914,7 @@ def main():
         max_cycles=args.max_cycles,
         dcache_init_file=dcache_init_file,
         run_verilog=not args.skip_verilator,
+        bpu_kind=args.predictor
     )
 
     if success:
