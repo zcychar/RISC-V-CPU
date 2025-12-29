@@ -211,6 +211,38 @@ def parse_last_rs_value_from_log(log_path: str) -> int:
     raise ValueError(f"无法从日志最后一行解析数值: {last_line}")
 
 
+def parse_stats_from_log(log_path: str) -> dict:
+    stats = {
+        "committed_instructions": 0,
+        "total_branches": 0,
+        "correctly_predicted_branches": 0,
+        "accuracy": 0.0
+    }
+    
+    if not os.path.exists(log_path):
+        return stats
+
+    with open(log_path, "r") as f:
+        content = f.read()
+        
+    m = re.search(r"Committed Instructions:\s*(\d+)", content)
+    if m:
+        stats["committed_instructions"] = int(m.group(1))
+        
+    m = re.search(r"Total Branches:\s*(\d+)", content)
+    if m:
+        stats["total_branches"] = int(m.group(1))
+        
+    m = re.search(r"Correctly Predicted Branches:\s*(\d+)", content)
+    if m:
+        stats["correctly_predicted_branches"] = int(m.group(1))
+        
+    if stats["total_branches"] > 0:
+        stats["accuracy"] = stats["correctly_predicted_branches"] / stats["total_branches"]
+        
+    return stats
+
+
 def read_expected_from_ans(ans_path: str) -> int:
     with open(ans_path, "r") as f:
         content = f.read().strip()
@@ -523,6 +555,7 @@ def run_all_workloads(
     timeout_s: int = 1000,
     bpu_kind="global",
     skip_verilator: bool = False,
+    stat_file: str | None = None,
 ) -> int:
     """编译一次仿真器，然后运行 workload/ 下所有子目录用例并校验 .ans。"""
     cases = discover_workload_cases()
@@ -554,6 +587,8 @@ def run_all_workloads(
     failed = 0
     failures: list[str] = []
     cycle_counts: list[str] = []
+    
+    all_stats = []
 
     print("\n[步骤 1] 运行 Python 仿真器并校验（先跑完所有用例）")
     for case in cases:
@@ -569,10 +604,11 @@ def run_all_workloads(
             _copy_text_file("/dev/null", dcache_init_file)
 
         # 2) 运行仿真
+        log_file = f"{workspace}/simulation.log"
         ok = run_simulator(
             simulator_binary,
             timeout_s=timeout_s,
-            log_file_path=f"{workspace}/simulation.log",
+            log_file_path=log_file,
             verilog_path=verilog_path,
             run_verilog=False,
         )
@@ -589,7 +625,7 @@ def run_all_workloads(
             failures.append(f"{case.name}: 缺少 .ans")
             continue
 
-        got = parse_last_rs_value_from_log(f"{workspace}/simulation.log")
+        got = parse_last_rs_value_from_log(log_file)
         expected = read_expected_from_ans(case.ans_path)
 
         if got == expected:
@@ -600,9 +636,28 @@ def run_all_workloads(
             failed += 1
             failures.append(f"{case.name}: got={got} expected={expected}")
 
-        cycles = parse_last_cycle_from_log(f"{workspace}/simulation.log")
+        cycles = parse_last_cycle_from_log(log_file)
         print(f"Total cycles={cycles}")
         cycle_counts.append(f"{case.name}: cycle={cycles}")
+        
+        # 收集统计信息
+        if stat_file:
+            stats = parse_stats_from_log(log_file)
+            stats["name"] = case.name
+            stats["cycles"] = cycles
+            all_stats.append(stats)
+
+    # 写入统计文件
+    if stat_file and all_stats:
+        try:
+            with open(stat_file, "w") as f:
+                # 写入 CSV 头
+                f.write("workload,cycles,committed_instructions,total_branches,correctly_predicted_branches,accuracy\n")
+                for s in all_stats:
+                    f.write(f"{s['name']},{s['cycles']},{s['committed_instructions']},{s['total_branches']},{s['correctly_predicted_branches']},{s['accuracy']:.4f}\n")
+            print(f"\n✓ 统计信息已写入: {stat_file}")
+        except Exception as e:
+            print(f"\n✗ 写入统计文件失败: {e}")
 
     # 第二阶段：统一跑 Verilator（若可用）
     if skip_verilator:
@@ -747,8 +802,8 @@ def main():
     parser.add_argument(
         "--max-cycles",
         type=int,
-        default=50,
-        help="Maximum number of simulation cycles to run (default: 50)",
+        default=None,
+        help="Maximum number of simulation cycles to run (default: 50 for single test, 100000000 for all workloads)",
     )
     parser.add_argument(
         "--predictor",
@@ -762,24 +817,40 @@ def main():
         action="store_true",
         help="Skip Verilator (only run Rust simulator).",
     )
+    parser.add_argument(
+        "--stat",
+        nargs="?",
+        const=".workspace/stats.csv",
+        help="Output statistics to a CSV file (default: .workspace/stats.csv). Implies --all-workloads.",
+    )
     args = parser.parse_args()
 
+    # 如果指定了 --stat，隐含 --all-workloads
+    if args.stat is not None:
+        args.all_workloads = True
+
     # 约定：直接 `python main.py`（无任何参数）时，跑全量 workload 回归。
-    # 注意：workload 往往需要更高 max_cycles，因此这里默认用 100000000。
     if len(sys.argv) == 1 and not args.all_workloads:
         args.all_workloads = True
-        args.max_cycles = 100000000
         args.skip_verilator = False
 
     if len(sys.argv) == 2 and sys.argv[1] == "--skip-verilator":
         args.all_workloads = True
-        args.max_cycles = 100000000
         args.skip_verilator = True
+
+    # 设置默认 max_cycles
+    if args.max_cycles is None:
+        if args.all_workloads:
+            args.max_cycles = 100000000
+        else:
+            args.max_cycles = 50
 
     if args.all_workloads:
         exit_code = run_all_workloads(
             max_cycles=args.max_cycles,
             skip_verilator=args.skip_verilator,
+            stat_file=args.stat,
+            bpu_kind=args.predictor,
         )
         sys.exit(exit_code)
 

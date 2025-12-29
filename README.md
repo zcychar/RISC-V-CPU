@@ -30,6 +30,8 @@ or
 python main.py --all-workloads --max-cycles 100000000
 ```
 
+## Prediction Statistics
+The CPU now supports collecting branch prediction statistics. After running a workload or test case with `--stat` option, a summary of branch prediction statistics will be logged in .workspace/simulation.log and saved in the specified CSV file (default: .workspace/stats.csv). The statistics include the total number of committed instructions, total branches, correctly predicted branches, prediction accuracy.
+
 ## TODO
-- Test branch prediction benchmark
 - Extend instruction set
