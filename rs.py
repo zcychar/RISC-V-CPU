@@ -21,6 +21,20 @@ class ReservationStation(Module):
         self.name = "RS"
         self.log = Logger(enabled=RSLogEnabled)
 
+    def print_stats(self, commit_counter, prediction_counter, prediction_correction_counter):
+        stat_log = Logger(enabled=StatLogEnabled)
+        stat_log(
+            "\n"
+            "===== Prediction Stats =====\n"
+            "Committed Instructions: {}\n"
+            "Total Branches: {}\n"
+            "Correctly Predicted Branches: {}\n"
+            "=====================",
+            commit_counter[0].bitcast(UInt(32)),
+            prediction_counter[0].bitcast(UInt(32)),
+            prediction_correction_counter[0].bitcast(UInt(32)),
+        )
+
     @module.combinational
     def build(
         self,
@@ -37,6 +51,9 @@ class ReservationStation(Module):
         mul: Module,
         ifetch_continue_flag: Array,
         revert_flag_cdb: Array,
+        commit_counter: Array,
+        prediction_counter: Array,
+        prediction_correction_counter: Array,
     ):
         (
             signals,
@@ -207,6 +224,7 @@ class ReservationStation(Module):
                     "EBREAK instruction committed, finish simulation",
                 )
                 log("{}", reg_file[10].bitcast(UInt(32)))
+                self.print_stats(commit_counter, prediction_counter, prediction_correction_counter)
                 finish()
 
             with Condition(is_ecall_array[update_index]):
@@ -214,6 +232,7 @@ class ReservationStation(Module):
                     "ECALL instruction committed, finish simulation",
                 )
                 log("{}", reg_file[10].bitcast(UInt(32)))
+                self.print_stats(commit_counter, prediction_counter, prediction_correction_counter)
                 finish()
 
             is_li_x10_255 = (
@@ -226,27 +245,12 @@ class ReservationStation(Module):
                 & (imm_array[update_index] == Bits(32)(255))
             )
 
-            # with Condition(rd_array[update_index] == Bits(5)(10)):
-            #     log(
-            #         "Register x10 committed, with alu={} imm=0x{:08x}, vj=0x{:08x}, imm_valid={}, memory={}, is_branch={}, is_jal={}, is_jalr={}, is_auipc={}, is_lui={}, is_li_x10_255={}",
-            #         alu_array[update_index].bitcast(UInt(RV32I_ALU.CNT)),
-            #         imm_array[update_index],
-            #         read_mux(vj_array_d, update_index),
-            #         imm_valid_array[update_index].bitcast(UInt(1)),
-            #         memory_array[update_index].bitcast(UInt(2)),
-            #         is_branch_array[update_index].bitcast(UInt(1)),
-            #         is_jal_array[update_index].bitcast(UInt(1)),
-            #         is_jalr_array[update_index].bitcast(UInt(1)),
-            #         is_auipc_array[update_index].bitcast(UInt(1)),
-            #         is_lui_array[update_index].bitcast(UInt(1)),
-            #         is_li_x10_255.bitcast(UInt(1)),
-            #     )
-
             with Condition(is_li_x10_255):
                 self.log(
                     "Main program executed LI x10 255, finish simulation",
                 )
                 log("{}", reg_file[10].bitcast(UInt(32)))
+                self.print_stats(commit_counter, prediction_counter, prediction_correction_counter)
                 finish()
 
             with Condition(need_update_from_rob[0]):

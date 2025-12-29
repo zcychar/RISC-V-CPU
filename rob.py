@@ -63,6 +63,9 @@ class ROB(Module):
         mul_rob_index_from_mul: Array,
         commit_sq_pos_to_lsq: Array,
         commit_valid_to_lsq: Array,
+        commit_counter: Array,
+        prediction_counter: Array,
+        prediction_correction_counter: Array,
     ):
         pos = RegArray(Bits(32), 1)
 
@@ -159,6 +162,7 @@ class ROB(Module):
                     ind_array[head],
                     pc_array[head],
                 )
+                commit_counter[0] = commit_counter[0] + Int(32)(1)
                 index_to_rs[0] = ind_array[head]
                 with Condition(~revert_flag):
                     # If revert triggered, clearing entries is handled later
@@ -243,6 +247,7 @@ class ROB(Module):
                         "is_branch_type, value_array[head] = 0x{:08x}",
                         read_mux(value_array_d, head),
                     )
+                    prediction_counter[0] = prediction_counter[0] + Int(32)(1)
                     predict_result = ~(
                         read_mux(value_array_d, head)[0:0] ^ jump_array[head][0:0]
                     )
@@ -272,6 +277,7 @@ class ROB(Module):
                         )
 
                     with Condition(predict_result):
+                        prediction_correction_counter[0] = prediction_correction_counter[0] + Int(32)(1)
                         self.log(
                             "Branch correct at idx={}, pc={}, predicted={}, actual={}",
                             head,

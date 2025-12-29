@@ -236,6 +236,11 @@ def build_simulator(
         fetcher = Fetcher()
         pc_reg, pc_addr = fetcher.build()
 
+        commit_counter = RegArray(Int(32), 1)
+        prediction_counter = RegArray(Int(32), 1)
+        prediction_correction_counter = RegArray(Int(32), 1)
+        
+
         icache = SRAM(width=32, depth=1 << depth_log,
                       init_file=icache_init_file)
         icache.name = "icache"
@@ -331,6 +336,9 @@ def build_simulator(
             mul_valid_from_mul=mul_valid_to_rob,
             mul_value_from_mul=mul_value_to_rob,
             mul_rob_index_from_mul=mul_index_to_rob,
+            commit_counter=commit_counter,
+            prediction_counter=prediction_counter,
+            prediction_correction_counter=prediction_correction_counter
         )
 
         rs = ReservationStation()
@@ -348,6 +356,9 @@ def build_simulator(
             alu=alu,
             mul=booth_encoder,
             revert_flag_cdb=revert_flag_cdb,
+            commit_counter=commit_counter,
+            prediction_counter=prediction_counter,
+            prediction_correction_counter=prediction_correction_counter
         )
 
         decoder = Decoder()
