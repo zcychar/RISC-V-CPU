@@ -565,7 +565,10 @@ class TageBPU(Downstream):
             alt_bank = choose_alt.select(Bits(2)(bank_id + 1), alt_bank)
             alt_pred = choose_alt.select(ctrs[bank_id][2:2], alt_pred)
 
-        final_pred_taken = provider_pred
+        provider_weak = (provider_ctr >= Bits(3)(3)) & (
+            provider_ctr <= Bits(3)(4))
+        use_alt = provider_weak & (alt_bank != Bits(2)(0))
+        final_pred_taken = use_alt.select(alt_pred, provider_pred)
         predicted_pc_addr = final_pred_taken.select(
             target_pc_from_d, pc_plus_4)
 
