@@ -14,34 +14,16 @@ knows it is a branch instruction, but fetcher does not know it yet. So fetcher s
 But with Downstream, fetcher can directly receive the information that "it is a branch instruction" from decoder in the same cycle (cycle 2). So fetcher can stop immediately.
 
 ## Write Ports
-Assassyn has strictly limited the number of write ports of a module writing to the same RegArray to 1. However, in some cases, we need multiple write ports. For example, in ROB, we may need one write port for committing instructions; another write port for receiving results from ALU, and etc. To solve this problem, we can create a new module for a new write port,
-like:
+Assassyn has strictly limited the number of write ports of a module writing to the same RegArray to 1. However, in some cases, we need multiple write ports. For example, in ROB, we may need one write port for committing instructions; another write port for receiving results from ALU, and etc. To solve this problem, we use an array of RegArray, each with one write port. For example, if we want multiple write ports to a RegArray of size n, instead of writing
 ```python
-class ROBWritePort(Module):
-    def __init__(self):
-        super().__init__(ports={})
+reg_array = RegArray(Bits(32), n)
 ```
-This module does not execute any logic, but just provides an additional write port to ROB. In this way, we can have multiple write ports to the same RegArray.
-Like this:
+we write
 ```python
-write_port_alu = ROBWritePort()
+reg_arrays = [RegArray(Bits(32), 1) for _ in range(n)]
 ```
-Use it by '&' operator:
-```python
-with Condition(alu_valid_from_alu[0]):
-    alu_idx = rob_index_from_alu[0]
-    (ready_array & write_port_alu)[alu_idx] = Bits(1)(1)
-    (value_array & write_port_alu)[alu_idx] = alu_value_from_alu[0]
-    log(
-        "ROB: Received from ALU idx={}, value=0x{:08x}",
-        alu_idx,
-        alu_value_from_alu[0],
-    )
-```
-
+Then, we use `read_mux` and `write1hot` utility functions in utils.py to read and write these arrays as if they are a single RegArray. These utility functions are virtually multiplexer and demultiplexer.
 ## Store Instructions
-### Why only sw is supported now?
-Because 'SRAM' module in assassyn only supports word-aligned access. To support byte/halfword access, we need to first read the whole word from memory, then modify the corresponding byte/halfword, and finally write back the whole word to memory. This requires additional logic to handle the read-modify-write cycle, which is not implemented yet.
 
 ## LSQ
 ### How Load-Store Queue handles flush?
@@ -53,3 +35,6 @@ When a branch misprediction is detected, the ROB will flush the pipeline, includ
 We maintain a `committed` and `lsq_pos` field for each SQ entry. When a load/store instruction is issued to the LSQ, it is assigned a position in the LSQ (`lsq_pos`) and position in corresponding queue(`lq_pos` and `sq_pos`). `lsq_pos` in this case is started from `1` for the first issued store instruction, `2` for the second, and so on, while `lq_pos` and `sq_pos` are started from `0`, corresponding to the `LQ` or `SQ` index. When the ROB commits a store instruction, it sends a commit signal to the LSQ along with the corresponding `sq_pos`. The LSQ then marks the store entry with the matching `sq_pos` as `committed = True`. 
 #### How to flush uncommitted stores and preserve committed stores?
 When a flush is triggered, the LSQ iterates through the SQ entries and checks the `committed` flag. If a busy entry is marked as `committed = False`, it is cleared from the SQ. If it is marked as `committed = True`, we preserve it by marking its `lsq_pos = 0`, indicating that it is no longer in the active LSQ but still needs to be executed. During the execution phase, the LSQ checks the `lsq_pos` of the head entry. If `lsq_pos > 0`, it means the store is still active and should be executed. If `lsq_pos = 0`, it means the store has been committed and should be executed regardless of the flush.
+#### How to handle sb/sh in assassyn?
+In assassyn, `SRAM` module only supports word-aligned access. To handle `sb` and `sh` instructions, we read the entire word containing the target byte/half-word, modify the relevant portion, and write back the entire word. This ensures that only the intended byte/half-word is changed while preserving the rest of the word. So sb/sh instructions are treated as a lw and sw instruction pair internally in LSQ, thus require two cycles to execute.
+
