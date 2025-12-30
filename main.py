@@ -502,7 +502,7 @@ def build_simulator(
 def run_simulator(
     simulator_binary: str,
     *,
-    timeout_s: int = 1000,
+    timeout_s: int = 10000,
     log_file_path: str | None = None,
     verilog_path: str | None = None,
     run_verilog: bool = True,
@@ -574,7 +574,7 @@ def build_and_run(
 def run_all_workloads(
     max_cycles: int,
     *,
-    timeout_s: int = 1000,
+    timeout_s: int = 10000,
     bpu_kind="global",
     skip_verilator: bool = False,
     stat_file: str | None = None,
