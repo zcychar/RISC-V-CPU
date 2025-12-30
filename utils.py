@@ -82,4 +82,5 @@ ROBLogEnabled = False
 LSQLogEnabled = False
 BPULogEnabled = False
 MulLogEnabled = False
+DivLogEnabled = False
 StatLogEnabled = True

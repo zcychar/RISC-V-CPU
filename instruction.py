@@ -283,7 +283,12 @@ class RV32I_ALU:
     ALU_MULHSU = 15
     ALU_MULHU = 16
 
-    CNT = 17
+    ALU_DIV = 17
+    ALU_DIVU = 18
+    ALU_REM = 19
+    ALU_REMU = 20
+
+    CNT = 21
 
 
 DecodeSignals = Record(
@@ -321,6 +326,7 @@ DecodeSignals = Record(
     is_ebreak=Bits(1),
     is_ecall=Bits(1),
     is_mul=Bits(1),
+    is_div=Bits(1),
 )
 
 decoder_signal_default = DecodeSignals.bundle(
@@ -351,6 +357,7 @@ decoder_signal_default = DecodeSignals.bundle(
     is_ebreak=Bits(1)(0),
     is_ecall=Bits(1)(0),
     is_mul=Bits(1)(0),
+    is_div=Bits(1)(0),
 )
 
 supported_opcodes = [
@@ -394,6 +401,11 @@ supported_opcodes = [
     ('mulh'   , (0b0110011, 0b001, 0b0000001, RV32I_ALU.ALU_MULH), RInst),
     ('mulhsu' , (0b0110011, 0b010, 0b0000001, RV32I_ALU.ALU_MULHSU), RInst),
     ('mulhu'  , (0b0110011, 0b011, 0b0000001, RV32I_ALU.ALU_MULHU), RInst),
+
+    ('div'    , (0b0110011, 0b100, 0b0000001, RV32I_ALU.ALU_DIV), RInst),
+    ('divu'   , (0b0110011, 0b101, 0b0000001, RV32I_ALU.ALU_DIVU), RInst),
+    ('rem'    , (0b0110011, 0b110, 0b0000001, RV32I_ALU.ALU_REM), RInst),
+    ('remu'   , (0b0110011, 0b111, 0b0000001, RV32I_ALU.ALU_REMU), RInst),
 
     ('ebreak', (0b1110011, 0b000, RV32I_ALU.ALU_NONE, None,0b000000000001,None), IInst),
     ('ecall' , (0b1110011, 0b000, RV32I_ALU.ALU_NONE, None,0b000000000000,None), IInst),
