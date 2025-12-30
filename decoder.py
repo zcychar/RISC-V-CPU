@@ -203,6 +203,7 @@ def decode_logic(inst):
     imm = eqs["auipc"].select(views[UInst].imm(False).concat(Bits(12)(0)), imm)
 
     is_mul = eqs["mul"] | eqs["mulh"] | eqs["mulhsu"] | eqs["mulhu"]
+    is_div = eqs["div"] | eqs["divu"] | eqs["rem"] | eqs["remu"]
 
     return DecodeSignals.bundle(
         memory=memory,
@@ -232,4 +233,5 @@ def decode_logic(inst):
         is_ebreak=eqs["ebreak"],
         is_ecall=eqs["ecall"],
         is_mul=is_mul,
+        is_div=is_div,
     )

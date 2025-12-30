@@ -51,6 +51,7 @@ class ReservationStation(Module):
         lsq: Module,
         alu: Module,
         mul: Module,
+        div: Module,
         ifetch_continue_flag: Array,
         revert_flag_cdb: Array,
         commit_counter: Array,
@@ -139,6 +140,7 @@ class ReservationStation(Module):
         is_ebreak_array = RegArray(Bits(1), RS_SIZE)
         is_ecall_array = RegArray(Bits(1), RS_SIZE)
         is_mul_array = RegArray(Bits(1), RS_SIZE)
+        is_div_array = RegArray(Bits(1), RS_SIZE)
 
         cond_array = RegArray(Bits(RV32I_ALU.CNT), RS_SIZE)
         flip_array = RegArray(Bits(1), RS_SIZE)
@@ -338,6 +340,7 @@ class ReservationStation(Module):
             is_ebreak_array[newly_append_ind] = signals.is_ebreak
             is_ecall_array[newly_append_ind] = signals.is_ecall
             is_mul_array[newly_append_ind] = signals.is_mul
+            is_div_array[newly_append_ind] = signals.is_div
             cond_array[newly_append_ind] = signals.cond
             flip_array[newly_append_ind] = signals.flip
 
@@ -629,6 +632,7 @@ class ReservationStation(Module):
             & ~is_auipc_array[dispatch_index]
             & ~is_lui_array[dispatch_index]
             & ~is_mul_array[dispatch_index]
+            & ~is_div_array[dispatch_index]
         )
 
         alu_a = vj_valid_array[dispatch_index].select(
@@ -661,6 +665,19 @@ class ReservationStation(Module):
 
         mul.async_called(
             valid=mul_out_flag,
+            a=read_mux(vj_array_d, dispatch_index),
+            b=read_mux(vk_array_d, dispatch_index),
+            tag=rob_dest_array[dispatch_index],
+            alu=alu_array[dispatch_index],
+        )
+
+        # Send to Divider
+        div_out_flag = dispatch_valid & is_div_array[dispatch_index]
+        with Condition(div_out_flag):
+            self.log("Dispatching RS entry {} to Divider", dispatch_index)
+
+        div.async_called(
+            valid=div_out_flag,
             a=read_mux(vj_array_d, dispatch_index),
             b=read_mux(vk_array_d, dispatch_index),
             tag=rob_dest_array[dispatch_index],
