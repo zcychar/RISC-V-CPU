@@ -412,7 +412,21 @@ def build_simulator(
             revert_flag_cdb=revert_flag_cdb,
             commit_counter=commit_counter,
             prediction_counter=prediction_counter,
-            prediction_correction_counter=prediction_correction_counter
+            prediction_correction_counter=prediction_correction_counter,
+            # CDB signals - results computed in RS instead of waiting for ROB commit
+            alu_cdb_valid=alu_valid_to_rob,
+            alu_cdb_value=alu_value_to_rob,
+            alu_cdb_rob_idx=alu_index_to_rob,
+            mul_cdb_valid=mul_valid_to_rob,
+            mul_cdb_value=mul_value_to_rob,
+            mul_cdb_rob_idx=mul_index_to_rob,
+            div_cdb_valid=div_valid_to_rob,
+            div_cdb_value=div_value_to_rob,
+            div_cdb_rob_idx=div_index_to_rob,
+            lsq_cdb_valid=lsb_out_valid_to_rob,
+            lsq_cdb_value=dcache.dout,
+            lsq_cdb_rob_idx=lsb_rob_dest_to_rob,
+            lsq_cdb_mem_addr=lsq_mem_addr_to_rob,
         )
 
         decoder = Decoder()
