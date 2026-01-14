@@ -61,6 +61,9 @@ class ROB(Module):
         mul_valid_from_mul: Array,
         mul_value_from_mul: Array,
         mul_rob_index_from_mul: Array,
+        div_valid_from_div: Array,
+        div_value_from_div: Array,
+        div_rob_index_from_div: Array,
         commit_sq_pos_to_lsq: Array,
         commit_valid_to_lsq: Array,
         commit_counter: Array,
@@ -338,6 +341,18 @@ class ROB(Module):
                     mul_idx,
                     mul_value_from_mul[0],
                     flip_from_rs_array[mul_idx],
+                )
+
+            # receive from DIV
+            with Condition(div_valid_from_div[0] & ~revert_flag):
+                div_idx = div_rob_index_from_div[0].bitcast(Bits(ROB_SIZE_LOG))
+                write_1hot(ready_array_d, div_idx, Bits(1)(1))
+                write_1hot(value_array_d, div_idx, div_value_from_div[0])
+                self.log(
+                    "Received from DIV idx={}, value=0x{:08x}, flip={}",
+                    div_idx,
+                    div_value_from_div[0],
+                    flip_from_rs_array[div_idx],
                 )
 
             # receive from LSQ
