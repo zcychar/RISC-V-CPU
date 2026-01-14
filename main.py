@@ -121,11 +121,6 @@ def _write_workload_exe_from_hex_list(instructions, out_path: str):
             f.write(f"{inst:08x}\n")
 
 
-def _copy_text_file(src_path: str, dst_path: str):
-    with open(src_path, "r") as src, open(dst_path, "w") as dst:
-        dst.write(src.read())
-
-
 def _ensure_file(path: str, *, default_content: str = ""):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if not os.path.exists(path):
@@ -137,7 +132,6 @@ def _ensure_file(path: str, *, default_content: str = ""):
 class WorkloadCase:
     name: str
     txt_path: str
-    data_path: str | None
     ans_path: str | None
 
 
@@ -156,17 +150,15 @@ def discover_workload_cases() -> list[WorkloadCase]:
         if not os.path.exists(txt_path):
             continue
 
-        data_path = os.path.join(folder, f"{entry}.data")
-        if not os.path.exists(data_path):
-            data_path = None
-
         ans_path = os.path.join(folder, f"{entry}.ans")
         if not os.path.exists(ans_path):
             ans_path = None
 
         cases.append(
             WorkloadCase(
-                name=entry, txt_path=txt_path, data_path=data_path, ans_path=ans_path
+                name=entry,
+                txt_path=txt_path,
+                ans_path=ans_path,
             )
         )
 
@@ -262,7 +254,9 @@ def build_simulator(
     generate_verilog: bool | None = None,
 ):
     """只构建（elaborate+编译）仿真器，返回二进制路径与 verilog 输出路径。"""
-    depth_log = 10  # 2^10 = 1024条指令空间（默认）；如需更大程序可考虑改为 10（1024）
+    depth_log = 14  # 2^14 = 16,384条指令空间（默认）；
+    if dcache_init_file is None:
+        dcache_init_file = icache_init_file
 
     sys_obj = SysBuilder("my_cpu")
 
@@ -562,13 +556,13 @@ def run_simulator(
 
 def build_and_run(
     max_cycles=50,
-    dcache_init_file=None,
     bpu_kind="global",
     *,
     run_verilog: bool = True,
 ):
     """兼容旧接口：构建并运行一次仿真"""
     icache_init_file = f"{workspace}/workload.exe"
+    dcache_init_file = icache_init_file
     simulator_binary, verilog_path = build_simulator(
         max_cycles=max_cycles,
         icache_init_file=icache_init_file,
@@ -601,9 +595,7 @@ def run_all_workloads(
 
     # 使用固定的 init_file 路径，便于“编译一次，多次运行”
     icache_init_file = f"{workspace}/workload.exe"
-    dcache_init_file = f"{workspace}/dcache.data"
     _ensure_file(icache_init_file, default_content="@00000000\n00000013\n")
-    _ensure_file(dcache_init_file, default_content="")
 
     print("=" * 70)
     print(f"全量 workload 回归: {', '.join([c.name for c in cases])}")
@@ -614,7 +606,7 @@ def run_all_workloads(
     simulator_binary, verilog_path = build_simulator(
         max_cycles=max_cycles,
         icache_init_file=icache_init_file,
-        dcache_init_file=dcache_init_file,
+        dcache_init_file=icache_init_file,
         bpu_kind=bpu_kind,
         generate_verilog=not skip_verilator,
     )
@@ -632,12 +624,8 @@ def run_all_workloads(
         print(f"[用例] {case.name}")
 
         # 1) 准备 icache/dcache init 文件
-        instructions, data_file = load_workload_file(case.name)
+        instructions = load_workload_file(case.name)
         _write_workload_exe_from_hex_list(instructions, icache_init_file)
-        if data_file and os.path.exists(data_file):
-            _copy_text_file(data_file, dcache_init_file)
-        else:
-            _copy_text_file("/dev/null", dcache_init_file)
 
         # 2) 运行仿真
         log_file = f"{workspace}/simulation.log"
@@ -707,12 +695,8 @@ def run_all_workloads(
             print(f"[Verilator 用例] {case.name}")
 
             # 重新准备 init 文件，确保 Verilator 读取到对应 workload 的镜像
-            instructions, data_file = load_workload_file(case.name)
+            instructions = load_workload_file(case.name)
             _write_workload_exe_from_hex_list(instructions, icache_init_file)
-            if data_file and os.path.exists(data_file):
-                _copy_text_file(data_file, dcache_init_file)
-            else:
-                _copy_text_file("/dev/null", dcache_init_file)
 
             print("正在运行 Verilog 仿真...")
             verilog_log = utils.run_verilator(verilog_path)
@@ -740,35 +724,27 @@ def run_all_workloads(
 
 
 def load_workload_file(filename):
-    """从 workload 文件夹加载十六进制指令文件
+    """从 workload 文件夹加载统一的内存初始化文件（指令 + 数据）
     支持三种格式:
     1. workload/xxx.txt - 直接加载文件
-    2. workload/xxx/xxx.txt - 从子文件夹加载，同时查找 xxx.data 作为 dcache 初始化
-    3. workload/xxx - 自动从子文件夹加载 xxx/xxx.txt 和 xxx/xxx.data
+    2. workload/xxx/xxx.txt - 从子文件夹加载
+    3. workload/xxx - 自动从子文件夹加载 xxx/xxx.txt
     """
-    data_file = None
 
     # 检查是否包含文件夹路径或扩展名
     if "/" in filename:
         # 格式: folder/file.txt
         workload_path = os.path.join(current_path, "workload", filename)
         folder_name = filename.split("/")[0]
-        data_file = os.path.join(
-            current_path, "workload", folder_name, f"{folder_name}.data"
-        )
     elif not filename.endswith(".txt"):
         # 格式: folder (不含扩展名) - 自动查找 folder/folder.txt
         folder_name = filename
         workload_path = os.path.join(
             current_path, "workload", folder_name, f"{folder_name}.txt"
         )
-        data_file = os.path.join(
-            current_path, "workload", folder_name, f"{folder_name}.data"
-        )
     else:
         # 格式: file.txt
         workload_path = os.path.join(current_path, "workload", filename)
-        data_file = None
 
     if not os.path.exists(workload_path):
         print(f"✗ 错误: 找不到文件 {workload_path}")
@@ -794,14 +770,9 @@ def load_workload_file(filename):
                 print(f"✗ 警告: 无法解析指令: {line}")
                 continue
 
-    print(f"✓ 从 {filename} 加载了 {len(instructions)} 条指令")
+    print(f"✓ 从 {filename} 加载了 {len(instructions)} 个 word（指令/数据）")
 
-    # 检查是否存在数据文件
-    if data_file and os.path.exists(data_file):
-        print(f"✓ 找到数据文件: {data_file}")
-        return instructions, data_file
-    else:
-        return instructions, None
+    return instructions
 
 
 def main():
@@ -900,17 +871,10 @@ def main():
     print("=" * 70)
 
     instructions = None
-    dcache_init_file = None
 
     # 优先使用 --workload 选项
     if args.workload:
-        instructions, original_data_file = load_workload_file(args.workload)
-        dcache_init_file = f"{workspace}/dcache.data"
-        if original_data_file and os.path.exists(original_data_file):
-            _copy_text_file(original_data_file, dcache_init_file)
-        else:
-            with open(dcache_init_file, "w") as f:
-                pass
+        instructions = load_workload_file(args.workload)
     elif args.test == "war":
         instructions = war_hazard_test()
     elif args.test == "waw":
@@ -944,11 +908,8 @@ def main():
 
     # 2. 构建并运行
     print(f"\n[步骤 2] 构建并运行仿真 (最大周期数: {args.max_cycles})")
-    if dcache_init_file:
-        print(f"    使用 dcache 初始化文件: {dcache_init_file}")
     success, verilog_path = build_and_run(
         max_cycles=args.max_cycles,
-        dcache_init_file=dcache_init_file,
         run_verilog=not args.skip_verilator,
         bpu_kind=args.predictor
     )
