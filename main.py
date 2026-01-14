@@ -318,7 +318,6 @@ def build_simulator(
         rob_bypass_is_jump_to_if = RegArray(Bits(1), 1)
         rob_bypass_valid_to_rs = RegArray(Bits(1), 1)
         rob_bypass_need_update_to_rs = RegArray(Bits(1), 1)
-        rob_bypass_value_to_rs = RegArray(Bits(32), 1)
         rob_bypass_index_to_rs = RegArray(Bits(32), 1)
         revert_flag_cdb = RegArray(Bits(1), 1)
 
@@ -359,7 +358,7 @@ def build_simulator(
         rob = ROB()
         rob.build(
             out_valid_to_rs=rob_bypass_valid_to_rs,
-            value_to_rs=rob_bypass_value_to_rs,
+            need_update_to_rs=rob_bypass_need_update_to_rs,
             index_to_rs=rob_bypass_index_to_rs,
             revert_flag_cdb=revert_flag_cdb,
             bypass_valid_to_if=rob_bypass_valid_to_if,
@@ -371,12 +370,10 @@ def build_simulator(
             alu_value_from_alu=alu_value_to_rob,
             rob_index_from_alu=alu_index_to_rob,
             in_valid_from_lsq=lsb_out_valid_to_rob,
-            value_from_dcache=dcache.dout,
+            lsq_value_from_lsq=dcache.dout,
             rob_dest_from_lsq=lsb_rob_dest_to_rob,
             commit_sq_pos_to_lsq=rob_commit_sq_pos_to_lsq,
             commit_valid_to_lsq=rob_commit_valid_to_lsq,
-            need_update_to_rs=rob_bypass_need_update_to_rs,
-            mem_addr_from_lsq=lsq_mem_addr_to_rob,
             mul_valid_from_mul=mul_valid_to_rob,
             mul_value_from_mul=mul_value_to_rob,
             mul_rob_index_from_mul=mul_index_to_rob,
@@ -393,7 +390,6 @@ def build_simulator(
             in_valid_from_rob=rob_bypass_valid_to_rs,
             need_update_from_rob=rob_bypass_need_update_to_rs,
             in_index_from_rob=rob_bypass_index_to_rs,
-            value_from_rob=rob_bypass_value_to_rs,
             jump_from_bpu=bpu_predict_taken,
             in_valid_from_lsq=lsq_bypass_valid_to_rs,
             sq_pos_from_lsq=lsq_bypass_sq_pos_to_rs,

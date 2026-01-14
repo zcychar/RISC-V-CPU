@@ -43,7 +43,6 @@ class ReservationStation(Module):
         in_valid_from_rob: Array,
         need_update_from_rob: Array,
         in_index_from_rob: Array,
-        value_from_rob: Array,
         jump_from_bpu: Array,
         in_valid_from_lsq: Array,
         sq_pos_from_lsq: Array,
@@ -810,31 +809,33 @@ class ReservationStation(Module):
             write_1hot(dispatched_array_d, dispatch_index, Bits(1)(1))
 
         read_mux(vj_array_d, dispatch_index)
-        # Send to ROB
+        # Determine if result is ready at dispatch time
+        # JAL, JALR, AUIPC, LUI have pre-computed results
+        # Store operations don't need result writeback
+        # ALU, Load, Branch need to wait for execution
+        result_ready_at_dispatch = (
+            is_jal_array[dispatch_index]
+            | is_jalr_array[dispatch_index]
+            | is_auipc_array[dispatch_index]
+            | is_lui_array[dispatch_index]
+            | memory_array[dispatch_index][1:1]  # Store
+        )
+        # Send to ROB - simplified, only send necessary fields
         rob.async_called(
             has_entry_from_rs=dispatch_valid,
-            alu_from_rs=alu_array[dispatch_index],
-            alu_valid_from_rs=alu_valid_array[dispatch_index],
             memory_from_rs=memory_array[dispatch_index],
-            mem_oper_size_from_rs=mem_oper_size_array[dispatch_index],
-            mem_oper_signed_from_rs=mem_oper_signed_array[dispatch_index],
             rs1_val_from_rs=read_mux(vj_array_d, dispatch_index),
-            rs1_valid_from_rs=vj_valid_array[dispatch_index],
-            rs2_val_from_rs=read_mux(vk_array_d, dispatch_index),
-            rs2_valid_from_rs=vk_valid_array[dispatch_index],
             dest_from_rs=rob_dest_array[dispatch_index],
             imm_from_rs=imm_array[dispatch_index],
             pc_from_rs=pc_array[dispatch_index],
             ind_from_rs=dispatch_index.bitcast(Bits(32)),
             jump_from_rs=jump_array[dispatch_index],
-            is_jal_from_rs=is_jal_array[dispatch_index],
             is_jalr_from_rs=is_jalr_array[dispatch_index],
-            is_auipc_from_rs=is_auipc_array[dispatch_index],
-            is_lui_from_rs=is_lui_array[dispatch_index],
             is_branch_from_rs=is_branch_array[dispatch_index],
-            cond_from_rs=cond_array[dispatch_index],
-            flip_from_rs=flip_array[dispatch_index],
             sq_pos_from_rs=sq_poses_array[dispatch_index],
+            result_from_rs=read_mux(result_array_d, dispatch_index),
+            result_ready_from_rs=result_ready_at_dispatch,
+            flip_from_rs=flip_array[dispatch_index],
         )
 
         # Send to LSQ

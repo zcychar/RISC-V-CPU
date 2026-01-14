@@ -33,7 +33,6 @@ from utils import Logger, DivLogEnabled
 def div_iteration(r: Value, divisor: Value, q_bit_out: list) -> Value:
     """
     Single iteration of restoring division.
-    Use Bits instead of UInt for borrow to avoid CIRCT fold bugs.
     """
     # Shift R left by 1
     r_shifted = (r << Bits(1)(1)).bitcast(UInt(64))
