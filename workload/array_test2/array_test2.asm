@@ -201,3 +201,13 @@ Disassembly of section .text:
  2dc:	02812403          	lw	s0,40(sp)
  2e0:	03010113          	addi	sp,sp,48
  2e4:	00008067          	ret
+
+Disassembly of section .rodata:
+
+000002e8 <Mod>:
+ 2e8:	000000fd                                ....
+
+Disassembly of section .data:
+
+000002ec <pa>:
+ 2ec:	000002f0                                ....

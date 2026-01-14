@@ -262,3 +262,8 @@ Disassembly of section .text:
  3b8:	f61ff0ef          	jal	318 <__hidden___udivsi3>
  3bc:	40b00533          	neg	a0,a1
  3c0:	00028067          	jr	t0
+
+Disassembly of section .rodata:
+
+000003c4 <Mod>:
+ 3c4:	000000fd                                ....

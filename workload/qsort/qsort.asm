@@ -277,3 +277,17 @@ Disassembly of section .text:
  3ec:	f61ff0ef          	jal	34c <__hidden___udivsi3>
  3f0:	40b00533          	neg	a0,a1
  3f4:	00028067          	jr	t0
+
+Disassembly of section .rodata:
+
+000003f8 <Mod-0x8>:
+ 3f8:	00000020          	.word	0x00000020
+ 3fc:	0000000a          	.word	0x0000000a
+
+00000400 <Mod>:
+ 400:	000000fd                                ....
+
+Disassembly of section .data:
+
+00000404 <n>:
+ 404:	00002710                                .'..

@@ -313,3 +313,22 @@ Disassembly of section .text:
  484:	f61ff0ef          	jal	3e4 <__hidden___udivsi3>
  488:	40b00533          	neg	a0,a1
  48c:	00028067          	jr	t0
+
+Disassembly of section .rodata:
+
+00000490 <Mod>:
+ 490:	000000fd                                ....
+
+Disassembly of section .data:
+
+00000494 <h>:
+ 494:	00000063                                c...
+
+00000498 <i>:
+ 498:	00000064                                d...
+
+0000049c <j>:
+ 49c:	00000065                                e...
+
+000004a0 <k>:
+ 4a0:	00000066                                f...

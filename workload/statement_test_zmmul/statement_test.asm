@@ -1,5 +1,5 @@
 
-statement_test_zmmul.elf:     file format elf32-littleriscv
+statement_test.elf:     file format elf32-littleriscv
 
 
 Disassembly of section .text:
@@ -273,3 +273,8 @@ Disassembly of section .text:
  3e4:	f61ff0ef          	jal	344 <__hidden___udivsi3>
  3e8:	40b00533          	neg	a0,a1
  3ec:	00028067          	jr	t0
+
+Disassembly of section .rodata:
+
+000003f0 <Mod>:
+ 3f0:	000000fd                                ....

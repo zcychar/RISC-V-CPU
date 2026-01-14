@@ -200,3 +200,8 @@ Disassembly of section .text:
  2b8:	f61ff0ef          	jal	218 <__hidden___udivsi3>
  2bc:	40b00533          	neg	a0,a1
  2c0:	00028067          	jr	t0
+
+Disassembly of section .rodata:
+
+000002c4 <Mod>:
+ 2c4:	000000fd                                ....

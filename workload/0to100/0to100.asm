@@ -143,3 +143,8 @@ Disassembly of section .text:
  1dc:	f61ff0ef          	jal	13c <__hidden___udivsi3>
  1e0:	40b00533          	neg	a0,a1
  1e4:	00028067          	jr	t0
+
+Disassembly of section .rodata:
+
+000001e8 <Mod>:
+ 1e8:	000000fd                                ....

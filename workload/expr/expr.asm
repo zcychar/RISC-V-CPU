@@ -219,3 +219,19 @@ Disassembly of section .text:
  30c:	f61ff0ef          	jal	26c <__hidden___udivsi3>
  310:	40b00533          	neg	a0,a1
  314:	00028067          	jr	t0
+
+Disassembly of section .rodata:
+
+00000318 <Mod>:
+ 318:	000000fd                                ....
+
+Disassembly of section .data:
+
+0000031c <A>:
+ 31c:	00000001                                ....
+
+00000320 <B>:
+ 320:	00000001                                ....
+
+00000324 <C>:
+ 324:	00000001                                ....

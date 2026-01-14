@@ -185,3 +185,8 @@ Disassembly of section .text:
  29c:	02812403          	lw	s0,40(sp)
  2a0:	03010113          	addi	sp,sp,48
  2a4:	00008067          	ret
+
+Disassembly of section .rodata:
+
+000002a8 <Mod>:
+ 2a8:	000000fd                                ....

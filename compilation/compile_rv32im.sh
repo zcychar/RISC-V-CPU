@@ -30,10 +30,11 @@ riscv64-unknown-elf-gcc \
 mkdir -p "${OUTDIR}"
 
 touch "${OUTDIR}/${NAME}.asm"
-riscv64-unknown-elf-objdump -d "${OUTELF}" > "${OUTDIR}/${NAME}.asm"
+riscv64-unknown-elf-objdump -d -j .text -j .rodata -j .srodata -j .sdata  -j .data   ${NAME}.elf > ${NAME}/${NAME}.asm
 
 python3 ./extract.py "${OUTELF}" "${OUTDIR}"
-
+rm -f ${NAME}/${NAME}_data.bin
+rm -f ${NAME}/${NAME}_text.bin
 cp "${NAME}.c" "${OUTDIR}/"
 
 # 运行（使用本机编译器生成参考退出码），并写入 ans 文件

@@ -635,3 +635,12 @@ Disassembly of section .text:
  97c:	f61ff0ef          	jal	8dc <__hidden___udivsi3>
  980:	40b00533          	neg	a0,a1
  984:	00028067          	jr	t0
+
+Disassembly of section .rodata:
+
+00000988 <Mod-0x8>:
+ 988:	00000020          	.word	0x00000020
+ 98c:	0000000a          	.word	0x0000000a
+
+00000990 <Mod>:
+ 990:	000000fd                                ....

@@ -19,8 +19,10 @@ LIBGCC=$(riscv64-unknown-elf-gcc -march=rv32i -mabi=ilp32 -print-libgcc-file-nam
 riscv64-unknown-elf-gcc -march=rv32i -mabi=ilp32 -nostdlib -Wl,-Ttext=0x0 -T ./linker.ld -o ${NAME}.elf start.S ${NAME}.c "${LIBGCC}"
 mkdir -p ${NAME}
 touch ${NAME}/${NAME}.asm
-riscv64-unknown-elf-objdump -d ${NAME}.elf > ${NAME}/${NAME}.asm
+riscv64-unknown-elf-objdump -d -j .text -j .rodata -j .srodata -j .sdata  -j .data  ${NAME}.elf > ${NAME}/${NAME}.asm
 python3 ./extract.py ${NAME}.elf ${NAME}
+rm -f ${NAME}/${NAME}_data.bin
+rm -f ${NAME}/${NAME}_text.bin
 cp ${NAME}.c ${NAME}/
 
 # 运行（使用本机编译器生成参考退出码），并写入 ans 文件
