@@ -11,28 +11,19 @@ class ROB(Module):
         super().__init__(
             ports={
                 "has_entry_from_rs": Port(Bits(1)),
-                "alu_from_rs": Port(Bits(RV32I_ALU.CNT)),
-                "alu_valid_from_rs": Port(Bits(1)),
                 "memory_from_rs": Port(Bits(2)),
-                "mem_oper_signed_from_rs": Port(Bits(1)),
-                "mem_oper_size_from_rs": Port(Bits(2)),
                 "rs1_val_from_rs": Port(Bits(32)),
-                "rs1_valid_from_rs": Port(Bits(1)),
-                "rs2_val_from_rs": Port(Bits(32)),
-                "rs2_valid_from_rs": Port(Bits(1)),
                 "dest_from_rs": Port(Bits(32)),
                 "imm_from_rs": Port(Bits(32)),
                 "pc_from_rs": Port(Bits(32)),
                 "ind_from_rs": Port(Bits(32)),
                 "jump_from_rs": Port(Bits(1)),
-                "is_jal_from_rs": Port(Bits(1)),
                 "is_jalr_from_rs": Port(Bits(1)),
-                "is_auipc_from_rs": Port(Bits(1)),
-                "is_lui_from_rs": Port(Bits(1)),
                 "is_branch_from_rs": Port(Bits(1)),
-                "cond_from_rs": Port(Bits(RV32I_ALU.CNT)),
-                "flip_from_rs": Port(Bits(1)),
                 "sq_pos_from_rs": Port(Bits(32)),
+                "result_from_rs": Port(Bits(32)),  # Result computed in RS
+                "result_ready_from_rs": Port(Bits(1)),  # Whether result is already ready
+                "flip_from_rs": Port(Bits(1)),  # Flip flag for branch comparison
             }
         )
         self.name = "ROB"
@@ -43,7 +34,6 @@ class ROB(Module):
         self,
         out_valid_to_rs: Array,
         need_update_to_rs: Array,
-        value_to_rs: Array,
         index_to_rs: Array,
         revert_flag_cdb: Array,
         bypass_valid_to_if: Array,
@@ -55,8 +45,7 @@ class ROB(Module):
         alu_value_from_alu: Array,
         rob_index_from_alu: Array,
         in_valid_from_lsq: Array,
-        value_from_dcache: Array,
-        mem_addr_from_lsq: Array,
+        lsq_value_from_lsq: Array,
         rob_dest_from_lsq: Array,
         mul_valid_from_mul: Array,
         mul_value_from_mul: Array,
@@ -72,60 +61,38 @@ class ROB(Module):
     ):
         pos = RegArray(Bits(32), 1)
 
-        # ROB table
-        # busy_array = RegArray(Bits(1), ROB_SIZE)
+        # ROB table - simplified, no longer stores values
         busy_array_d = [RegArray(Bits(1), 1) for _ in range(ROB_SIZE)]
-        alu_array = RegArray(Bits(RV32I_ALU.CNT), ROB_SIZE)
-        alu_valid_array = RegArray(Bits(1), ROB_SIZE)
+        ready_array_d = [RegArray(Bits(1), 1) for _ in range(ROB_SIZE)]
+        
+        # Only keep necessary fields
         memory_from_rs_array = RegArray(Bits(2), ROB_SIZE)
-        mem_oper_signed_array = RegArray(Bits(1), ROB_SIZE)
-        mem_oper_size_array = RegArray(Bits(2), ROB_SIZE)
         rs1_val_array = RegArray(Bits(32), ROB_SIZE)
-        rs1_valid_array = RegArray(Bits(1), ROB_SIZE)
-        rs2_val_array = RegArray(Bits(32), ROB_SIZE)
-        rs2_valid_array = RegArray(Bits(1), ROB_SIZE)
-        dest_array = RegArray(Bits(32), ROB_SIZE)
         imm_array = RegArray(Bits(32), ROB_SIZE)
         pc_array = RegArray(Bits(32), ROB_SIZE)
         ind_array = RegArray(Bits(32), ROB_SIZE)
         jump_array = RegArray(Bits(1), ROB_SIZE)
-        is_jal_from_rs_array = RegArray(Bits(1), ROB_SIZE)
         is_jalr_from_rs_array = RegArray(Bits(1), ROB_SIZE)
-        is_auipc_from_rs_array = RegArray(Bits(1), ROB_SIZE)
-        is_lui_from_rs_array = RegArray(Bits(1), ROB_SIZE)
         is_branch_from_rs_array = RegArray(Bits(1), ROB_SIZE)
-        cond_from_rs_array = RegArray(Bits(RV32I_ALU.CNT), ROB_SIZE)
-        flip_from_rs_array = RegArray(Bits(1), ROB_SIZE)
         sq_pos_from_rs_array = RegArray(Bits(32), ROB_SIZE)
-        # ready_array = RegArray(Bits(1), ROB_SIZE)
-        # value_array = RegArray(Bits(32), ROB_SIZE)
-        ready_array_d = [RegArray(Bits(1), 1) for _ in range(ROB_SIZE)]
-        value_array_d = [RegArray(Bits(32), 1) for _ in range(ROB_SIZE)]
+        result_array_d = [RegArray(Bits(32), 1) for _ in range(ROB_SIZE)]  # Store result from RS or execution units
+        flip_array = RegArray(Bits(1), ROB_SIZE)  # Flip flag for branch comparison
 
         (
             has_entry_from_rs,
-            alu_from_rs,
-            alu_valid_from_rs,
             memory_from_rs,
-            mem_oper_signed_from_rs,
-            mem_oper_size_from_rs,
             rs1_val_from_rs,
-            rs1_valid_from_rs,
-            rs2_val_from_rs,
-            rs2_valid_from_rs,
             dest_from_rs,
             imm_from_rs,
             pc_from_rs,
             ind_from_rs,
             jump_from_rs,
-            is_jal_from_rs,
             is_jalr_from_rs,
-            is_auipc_from_rs,
-            is_lui_from_rs,
             is_branch_from_rs,
-            cond_from_rs,
-            flip_from_rs,
             sq_pos_from_rs,
+            result_from_rs,
+            result_ready_from_rs,
+            flip_from_rs,
         ) = self.pop_all_ports(False)
 
         with Condition(revert_flag_cdb[0]):
@@ -139,6 +106,7 @@ class ROB(Module):
         with Condition(~revert_flag_cdb[0]):
             # commit head entry
             head = pos[0].bitcast(Bits(ROB_SIZE_LOG))
+            head_result = read_mux(result_array_d, head)
             commit_flag = read_mux(busy_array_d, pos[0]) & read_mux(ready_array_d, head)
             bypass_valid_to_if[0] = commit_flag & (
                 is_branch_from_rs_array[head] | is_jalr_from_rs_array[head]
@@ -146,7 +114,7 @@ class ROB(Module):
             revert_flag = commit_flag & (
                 (
                     is_branch_from_rs_array[head]
-                    & (read_mux(value_array_d, head)[0:0] ^ jump_array[head][0:0])
+                    & (head_result[0:0] ^ jump_array[head][0:0])
                 )
                 | is_jalr_from_rs_array[head]
             )
@@ -156,46 +124,24 @@ class ROB(Module):
             )
             commit_branch_to_bpu[0] = commit_flag & is_branch_from_rs_array[head]
             pc_addr_to_bpu[0] = pc_array[head]
+            
             with Condition(commit_flag):
                 self.log(
-                    "Committing entry rob_idx={}, dest={}, value=0x{:08x}, rs_idx={}, pc=0x{:08x}",
+                    "Committing entry rob_idx={}, rs_idx={}, pc=0x{:08x}",
                     head,
-                    dest_array[head],
-                    read_mux(value_array_d, head),
                     ind_array[head],
                     pc_array[head],
                 )
                 commit_counter[0] = commit_counter[0] + Int(32)(1)
                 index_to_rs[0] = ind_array[head]
+                
                 with Condition(~revert_flag):
-                    # If revert triggered, clearing entries is handled later
                     write_1hot(busy_array_d, head, Bits(1)(0))
-                    pos[0] = (head.bitcast(UInt(32)) + UInt(32)(1)) & Bits(32)(
-                        ROB_SIZE - 1
-                    )
+                    pos[0] = (head.bitcast(UInt(32)) + UInt(32)(1)) & Bits(32)(ROB_SIZE - 1)
                 write_1hot(ready_array_d, head, Bits(1)(0))
-                with Condition(
-                    is_jal_from_rs_array[head] | is_jalr_from_rs_array[head]
-                ):
-                    self.log(
-                        "is_jal/jalr, value_to_rs[0] = 0x{:08x}",
-                        pc_array[head].bitcast(Int(32)) + Int(32)(4),
-                    )
-                    value_to_rs[0] = (
-                        pc_array[head].bitcast(Int(32)) + Int(32)(4)
-                    ).bitcast(Bits(32))
 
+                # Handle jalr - compute target PC
                 with Condition(is_jalr_from_rs_array[head]):
-                    self.log(
-                        "is_jalr, updated_pc_to_if[0] = 0x{:08x}",
-                        (
-                            (
-                                rs1_val_array[head].bitcast(Int(32))
-                                + imm_array[head].bitcast(Int(32))
-                            )
-                        ).bitcast(Bits(32))
-                        & Bits(32)(0xFFFFFFFE),
-                    )
                     updated_pc_to_if[0] = (
                         (
                             rs1_val_array[head].bitcast(Int(32))
@@ -203,255 +149,101 @@ class ROB(Module):
                         ).bitcast(Bits(32))
                     ) & Bits(32)(0xFFFFFFFE)
 
-                with Condition(is_auipc_from_rs_array[head]):
-                    self.log(
-                        "is_auipc, value_to_rs[0] = 0x{:08x}",
-                        (
-                            pc_array[head].bitcast(Int(32))
-                            + imm_array[head].bitcast(Int(32))
-                        ).bitcast(Bits(32)),
-                    )
-                    value_to_rs[0] = (
-                        pc_array[head].bitcast(Int(32))
-                        + imm_array[head].bitcast(Int(32))
-                    ).bitcast(Bits(32))
-
-                with Condition(is_lui_from_rs_array[head]):
-                    self.log("is_lui, value_to_rs[0] = 0x{:08x}", imm_array[head])
-                    value_to_rs[0] = imm_array[head]
-
-                with Condition(alu_valid_array[head]):
-                    self.log(
-                        "alu_type, value_to_rs[0] = 0x{:08x}",
-                        read_mux(value_array_d, head),
-                    )
-                    value_to_rs[0] = read_mux(value_array_d, head)
-
-                with Condition(memory_from_rs_array[head][0:0] == Bits(1)(1)):
-                    self.log(
-                        "load_type, value_to_rs[0] = 0x{:08x}",
-                        read_mux(value_array_d, head),
-                    )
-                    value_to_rs[0] = read_mux(value_array_d, head)
-
+                # Handle store - notify LSQ
                 with Condition(memory_from_rs_array[head][1:1] == Bits(1)(1)):
-                    value_to_rs[0] = Bits(32)(0)
                     commit_sq_pos_to_lsq[0] = sq_pos_from_rs_array[head]
                     commit_valid_to_lsq[0] = Bits(1)(1)
-                    self.log(
-                        "store_type, commit_sq_pos_to_lsq[0] = {}",
-                        sq_pos_from_rs_array[head],
-                    )
                 with Condition(~(memory_from_rs_array[head][1:1] == Bits(1)(1))):
                     commit_valid_to_lsq[0] = Bits(1)(0)
 
+                # Handle branch - update BPU
                 with Condition(is_branch_from_rs_array[head]):
-                    self.log(
-                        "is_branch_type, value_array[head] = 0x{:08x}",
-                        read_mux(value_array_d, head),
-                    )
                     prediction_counter[0] = prediction_counter[0] + Int(32)(1)
-                    predict_result = ~(
-                        read_mux(value_array_d, head)[0:0] ^ jump_array[head][0:0]
-                    )
+                    predict_result = ~(head_result[0:0] ^ jump_array[head][0:0])
 
-                    # Branch taken
-                    with Condition(read_mux(value_array_d, head)[0:0]):
+                    with Condition(head_result[0:0]):
                         updated_pc_to_if[0] = (
                             pc_array[head].bitcast(Int(32))
                             + imm_array[head].bitcast(Int(32))
                         ).bitcast(Bits(32))
                         actual_taken_to_bpu[0] = Bits(1)(1)
 
-                    # Branch not taken
-                    with Condition(~read_mux(value_array_d, head)[0:0]):
+                    with Condition(~head_result[0:0]):
                         updated_pc_to_if[0] = (
                             pc_array[head].bitcast(Int(32)) + Int(32)(4)
                         ).bitcast(Bits(32))
                         actual_taken_to_bpu[0] = Bits(1)(0)
 
-                    with Condition(~predict_result):
-                        self.log(
-                            "Branch mispredict at idx={}, pc={}, predicted={}, actual={}",
-                            head,
-                            pc_array[head],
-                            jump_array[head][0:0],
-                            read_mux(value_array_d, head)[0:0],
-                        )
-
                     with Condition(predict_result):
                         prediction_correction_counter[0] = prediction_correction_counter[0] + Int(32)(1)
-                        self.log(
-                            "Branch correct at idx={}, pc={}, predicted={}, actual={}",
-                            head,
-                            pc_array[head],
-                            jump_array[head][0:0],
-                            read_mux(value_array_d, head)[0:0],
-                        )
 
                 out_valid_to_rs[0] = Bits(1)(1)
 
             with Condition(revert_flag):
-                self.log(
-                    "Revert triggered at idx={}, pc={}",
-                    head,
-                    pc_array[head],
-                )
+                self.log("Revert triggered at idx={}, pc={}", head, pc_array[head])
                 pos[0] = Bits(32)(0)
-                # Clear all entries
                 for i in range(ROB_SIZE):
                     busy_array_d[i][0] = Bits(1)(0)
 
             with Condition(~commit_flag):
                 out_valid_to_rs[0] = Bits(1)(0)
                 commit_valid_to_lsq[0] = Bits(1)(0)
-                self.log(
-                    "No commit, busy={}, ready={}, idx={}",
-                    read_mux(busy_array_d, head),
-                    read_mux(ready_array_d, head),
-                    head,
-                )
 
-            # receive from ALU
+            # receive from ALU - mark ready and update result with flip
             with Condition(alu_valid_from_alu[0] & ~revert_flag):
                 alu_idx = rob_index_from_alu[0].bitcast(Bits(ROB_SIZE_LOG))
                 write_1hot(ready_array_d, alu_idx, Bits(1)(1))
-                write_1hot(
-                    value_array_d,
-                    alu_idx,
-                    flip_from_rs_array[alu_idx].select(
-                        alu_value_from_alu[0] ^ Bits(32)(1),
-                        alu_value_from_alu[0],
-                    ),
-                )
-                self.log(
-                    "Received from ALU idx={}, value=0x{:08x}, flip={}",
-                    alu_idx,
+                # Apply flip for branch comparison results
+                alu_result_flipped = flip_array[alu_idx].select(
+                    alu_value_from_alu[0] ^ Bits(32)(1),
                     alu_value_from_alu[0],
-                    flip_from_rs_array[alu_idx],
                 )
+                write_1hot(result_array_d, alu_idx, alu_result_flipped)
 
-            # receive from MUL
+            # receive from MUL - mark ready and update result
             with Condition(mul_valid_from_mul[0] & ~revert_flag):
                 mul_idx = mul_rob_index_from_mul[0].bitcast(Bits(ROB_SIZE_LOG))
                 write_1hot(ready_array_d, mul_idx, Bits(1)(1))
-                write_1hot(value_array_d, mul_idx, mul_value_from_mul[0])
-                self.log(
-                    "Received from MUL idx={}, value=0x{:08x}, flip={}",
-                    mul_idx,
-                    mul_value_from_mul[0],
-                    flip_from_rs_array[mul_idx],
-                )
+                write_1hot(result_array_d, mul_idx, mul_value_from_mul[0])
 
-            # receive from DIV
+            # receive from DIV - mark ready and update result
             with Condition(div_valid_from_div[0] & ~revert_flag):
                 div_idx = div_rob_index_from_div[0].bitcast(Bits(ROB_SIZE_LOG))
                 write_1hot(ready_array_d, div_idx, Bits(1)(1))
-                write_1hot(value_array_d, div_idx, div_value_from_div[0])
-                self.log(
-                    "Received from DIV idx={}, value=0x{:08x}, flip={}",
-                    div_idx,
-                    div_value_from_div[0],
-                    flip_from_rs_array[div_idx],
-                )
+                write_1hot(result_array_d, div_idx, div_value_from_div[0])
 
-            # receive from LSQ
+            # receive from LSQ - mark ready and update result
             with Condition(in_valid_from_lsq[0] & ~revert_flag):
-                lsq_idx = (rob_dest_from_lsq[0] & Bits(32)(ROB_SIZE - 1)).bitcast(
-                    Bits(ROB_SIZE_LOG)
-                )
+                lsq_idx = (rob_dest_from_lsq[0] & Bits(32)(ROB_SIZE - 1)).bitcast(Bits(ROB_SIZE_LOG))
                 write_1hot(ready_array_d, lsq_idx, Bits(1)(1))
-                sign = mem_oper_signed_array[lsq_idx]
-                size = mem_oper_size_array[lsq_idx]
-                value = value_from_dcache[0]
-                offset = mem_addr_from_lsq[0][0:1]  # get lowest 2 bits
-
-                byte_ext_bit = sign & value[7:7]
-                byte_ext = byte_ext_bit.select(Bits(24)(0xFFFFFF), Bits(24)(0))
-                byte_val = concat(byte_ext, value[0:7])
-                for i in range(4):
-                    byte_offset_flag = offset == Bits(2)(i)
-                    byte_val = byte_offset_flag.select(
-                        concat(byte_ext, value[i << 3 : (i << 3) + 7]), byte_val
-                    )
-
-                half_ext_bit = sign & value[15:15]
-                half_ext = half_ext_bit.select(Bits(16)(0xFFFF), Bits(16)(0))
-                half_val = offset[0:0].select(
-                    concat(half_ext, value[0:15]), concat(half_ext, value[16:31])
-                )
-
-                final_val = (size == Bits(2)(0)).select(
-                    byte_val, (size == Bits(2)(1)).select(half_val, value)
-                )
-
-                write_1hot(value_array_d, lsq_idx, final_val)
-                self.log(
-                    "Received from LSQ idx={}, value=0x{:08x}",
-                    lsq_idx,
-                    final_val,
-                )
+                write_1hot(result_array_d, lsq_idx, lsq_value_from_lsq[0])
 
             # append new entry
             idx = (dest_from_rs & Bits(32)(ROB_SIZE - 1)).bitcast(Bits(ROB_SIZE_LOG))
-            # Currently we don't send memory instructions to ALU
-            alu_flag = (
-                (
-                    (
-                        alu_valid_from_rs
-                        & (memory_from_rs == Bits(2)(0))
-                        & ~is_jalr_from_rs
-                        & ~is_jal_from_rs
-                        & ~is_lui_from_rs
-                        & ~is_auipc_from_rs
-                    )
-                    | is_branch_from_rs
-                )
-                & ~revert_flag
-                & has_entry_from_rs
-            )
 
             with Condition(has_entry_from_rs & ~revert_flag):
                 write_1hot(busy_array_d, idx, Bits(1)(1))
-                alu_array[idx] = alu_from_rs
-                rs1_val_array[idx] = rs1_val_from_rs
-                rs1_valid_array[idx] = rs1_valid_from_rs
-                alu_valid_array[idx] = alu_flag & ~is_branch_from_rs
                 memory_from_rs_array[idx] = memory_from_rs
-                mem_oper_signed_array[idx] = mem_oper_signed_from_rs
-                mem_oper_size_array[idx] = mem_oper_size_from_rs
-                rs2_valid_array[idx] = rs2_valid_from_rs
-                rs2_val_array[idx] = rs2_val_from_rs
-                dest_array[idx] = dest_from_rs
+                rs1_val_array[idx] = rs1_val_from_rs
                 imm_array[idx] = imm_from_rs
                 pc_array[idx] = pc_from_rs
                 ind_array[idx] = ind_from_rs
                 jump_array[idx] = jump_from_rs
-                is_jal_from_rs_array[idx] = is_jal_from_rs
                 is_jalr_from_rs_array[idx] = is_jalr_from_rs
-                is_auipc_from_rs_array[idx] = is_auipc_from_rs
-                is_lui_from_rs_array[idx] = is_lui_from_rs
                 is_branch_from_rs_array[idx] = is_branch_from_rs
-                cond_from_rs_array[idx] = cond_from_rs
-                flip_from_rs_array[idx] = flip_from_rs
                 sq_pos_from_rs_array[idx] = sq_pos_from_rs
+                write_1hot(result_array_d, idx, result_from_rs)
+                flip_array[idx] = flip_from_rs
 
-                ready_flag = ~alu_flag & ~memory_from_rs[0:0]
-                write_1hot(
-                    ready_array_d, idx, ready_flag.select(Bits(1)(1), Bits(1)(0))
-                )
+                # Use result_ready_from_rs directly - RS knows if result is pre-computed
+                # jal/jalr/lui/auipc/store are ready immediately
+                # ALU/MUL/DIV/Load/branch need to wait for execution unit
+                write_1hot(ready_array_d, idx, result_ready_from_rs)
                 self.log(
-                    "Appended entry idx={}, ind_rs={}, pc={}, rs1={}, rs2={}, imm=0x{:08x}, alu={}, memory={}, alu_valid={}, ready={}, cond={}, flip={}",
+                    "Appended entry idx={}, ind_rs={}, pc=0x{:08x}, memory={}, ready={}",
                     idx,
                     ind_from_rs,
                     pc_from_rs,
-                    rs1_val_from_rs,
-                    rs2_val_from_rs,
-                    imm_from_rs,
-                    alu_from_rs,
                     memory_from_rs,
-                    alu_flag,
-                    ready_flag,
-                    cond_from_rs,
-                    flip_from_rs,
+                    result_ready_from_rs,
                 )
