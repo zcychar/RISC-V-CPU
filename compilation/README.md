@@ -7,8 +7,12 @@ To use these files, you will need a RISC-V toolchain installed on your system.
   ```bash
   ./compile.sh program
   ```
-- Then you can find the generated files in the `program` directory.
+- Then you can find the generated files in the `program` directory (including a single unified memory init file `program.txt` that contains both instructions and data for the caches).
 - Use `compile_rv32i_zmmul.sh` instead if you want to compile with the `Zmmul` extension enabled:
   ```bash
   ./compile_rv32i_zmmul.sh program
+  ```
+- Use `compile_rv32im.sh` if you want to compile with the M extension enabled (hardware mul/div):
+  ```bash
+  ./compile_rv32im.sh vec_div
   ```

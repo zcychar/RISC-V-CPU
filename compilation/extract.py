@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-extract_data.py - 从 ELF 文件中提取代码段和数据段
+extract.py - 从 ELF 文件中提取完整可执行镜像（代码 + 数据）到单个内存初始化文件
 """
 
 import sys
@@ -8,49 +8,52 @@ import subprocess
 import os
 
 def extract_sections(elf_file, output_dir):
-    """从 ELF 文件提取 .text 和 .data 段"""
-    
+    """从 ELF 文件提取完整镜像（.text + .rodata + .data + .bss）到单个文件"""
+
     base_name = os.path.splitext(os.path.basename(elf_file))[0]
-    
-    # 获取段信息
+
+    # 获取段信息，便于调试
     result = subprocess.run(
-        ['riscv64-unknown-elf-readelf', '-S', elf_file],
-        capture_output=True, text=True
+        ["riscv64-unknown-elf-readelf", "-S", elf_file],
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    
+
     print("Section information:")
     print(result.stdout)
-    
-    # 提取 .text 段（代码）
-    text_bin = os.path.join(output_dir, f'{base_name}_text.bin')
-    subprocess.run([
-        'riscv64-unknown-elf-objcopy',
-        '-O', 'binary',
-        '--only-section=.text',
-        elf_file,
-        text_bin
-    ])
-    
-    # 提取 .data 段（数据）
-    data_bin = os.path.join(output_dir, f'{base_name}_data.bin')
-    subprocess.run([
-        'riscv64-unknown-elf-objcopy',
-        '-O', 'binary',
-        '--only-section=.rodata',
-        '--only-section=.srodata',
-        '--only-section=.data',
-        '--only-section=.sdata',
-        elf_file,
-        data_bin
-    ])
-    
-    # 转换为 txt 格式
-    convert_bin_to_txt(text_bin, os.path.join(output_dir, f'{base_name}.txt'))
-    convert_bin_to_txt(data_bin, os.path.join(output_dir, f'{base_name}.data'))
-    
+
+    image_bin = os.path.join(output_dir, f"{base_name}.bin")
+
+    # 将所有需要的段按链接地址顺序提取为一个连续的二进制镜像
+    subprocess.run(
+        [
+            "riscv64-unknown-elf-objcopy",
+            "-O",
+            "binary",
+            "-j",
+            ".text",
+            "-j",
+            ".rodata",
+            "-j",
+            ".srodata",
+            "-j",
+            ".data",
+            "-j",
+            ".sdata",
+            "-j",
+            ".bss",
+            elf_file,
+            image_bin,
+        ],
+        check=True,
+    )
+
+    # 转换为十六进制文本格式（单一文件，同时用于 icache/dcache 初始化）
+    convert_bin_to_txt(image_bin, os.path.join(output_dir, f"{base_name}.txt"))
+
     print(f"\nGenerated files:")
-    print(f"  - {base_name}.txt (code)")
-    print(f"  - {base_name}.data (data)")
+    print(f"  - {base_name}.txt (unified image)")
 
 def convert_bin_to_txt(bin_file, txt_file):
     """将二进制文件转换为十六进制文本文件"""
@@ -80,8 +83,8 @@ def convert_bin_to_txt(bin_file, txt_file):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python extract_data.py <elf_file> <output_dir>")
-        print("Example: python extract_data.py plus.elf workload/plus/")
+        print("Usage: python extract.py <elf_file> <output_dir>")
+        print("Example: python extract.py plus.elf workload/plus/")
         sys.exit(1)
     
     elf_file = sys.argv[1]

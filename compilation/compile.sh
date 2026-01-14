@@ -21,8 +21,6 @@ mkdir -p ${NAME}
 touch ${NAME}/${NAME}.asm
 riscv64-unknown-elf-objdump -d ${NAME}.elf > ${NAME}/${NAME}.asm
 python3 ./extract.py ${NAME}.elf ${NAME}
-rm -f ${NAME}/${NAME}_data.bin
-rm -f ${NAME}/${NAME}_text.bin
 cp ${NAME}.c ${NAME}/
 
 # 运行（使用本机编译器生成参考退出码），并写入 ans 文件
