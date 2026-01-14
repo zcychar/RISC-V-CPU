@@ -15,6 +15,10 @@ You can also use --workload to run workload files in workloads/ directory. For e
 ```
 python main.py --workload 0to100 --max-cycles 10000
 ```
+If you already have a unified init image (one word per line hex, like the generated `workload/<name>/<name>.txt`), you can run it directly without .ans checking using `--init-file` (feeds both icache and dcache) and optionally run Verilator unless `--skip-verilator` is set:
+```
+python main.py --init-file workload/0to100/0to100.txt --max-cycles 100000
+```
 You can choose the branch predictor via `--predictor` ( Currently supports: `tournament`, `global`, `two_bit`, `always_false`,
   `always_true`):
 ```
