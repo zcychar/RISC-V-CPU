@@ -723,6 +723,55 @@ def run_all_workloads(
     return 0 if failed == 0 else 1
 
 
+def run_single_init_file(
+    init_file: str,
+    *,
+    max_cycles: int,
+    bpu_kind: str,
+    skip_verilator: bool,
+) -> int:
+    """使用用户提供的统一镜像文件作为 icache/dcache init，跳过 .ans 校验。"""
+    init_file = os.path.abspath(init_file)
+    if not os.path.exists(init_file):
+        print(f"✗ 错误: 找不到 init 文件 {init_file}")
+        return 1
+
+    print("=" * 70)
+    print(f"单一 init 文件: {init_file}")
+    print(
+        f"分支预测: {bpu_kind} 最大周期数: {max_cycles} 跳过 Verilator: {skip_verilator}"
+    )
+    print("=" * 70)
+
+    log_file = f"{workspace}/simulation.log"
+    simulator_binary, verilog_path = build_simulator(
+        max_cycles=max_cycles,
+        icache_init_file=init_file,
+        dcache_init_file=init_file,
+        bpu_kind=bpu_kind,
+        generate_verilog=not skip_verilator,
+    )
+
+    ok = run_simulator(
+        simulator_binary,
+        log_file_path=log_file,
+        verilog_path=verilog_path,
+        run_verilog=not skip_verilator,
+    )
+
+    if ok:
+        try:
+            value = parse_last_rs_value_from_log(log_file)
+            cycles = parse_last_cycle_from_log(log_file)
+            print(f"✓ 仿真完成: got={value} cycles={cycles}")
+        except Exception as e:
+            print(f"✓ 仿真完成（结果解析失败: {e}）")
+    else:
+        print("✗ 仿真返回非 0")
+
+    return 0 if ok else 1
+
+
 def load_workload_file(filename):
     """从 workload 文件夹加载统一的内存初始化文件（指令 + 数据）
     支持三种格式:
@@ -827,6 +876,11 @@ def main():
         help="Skip Verilator (only run Rust simulator).",
     )
     parser.add_argument(
+        "--init-file",
+        type=str,
+        help="Use a single init file (hex/word-per-line) for both icache and dcache; run simulator/Verilator once without ans check.",
+    )
+    parser.add_argument(
         "--stat",
         nargs="?",
         const=".workspace/stats.csv",
@@ -860,6 +914,15 @@ def main():
             skip_verilator=args.skip_verilator,
             stat_file=args.stat,
             bpu_kind=args.predictor,
+        )
+        sys.exit(exit_code)
+
+    if args.init_file:
+        exit_code = run_single_init_file(
+            init_file=args.init_file,
+            max_cycles=args.max_cycles,
+            bpu_kind=args.predictor,
+            skip_verilator=args.skip_verilator,
         )
         sys.exit(exit_code)
 
