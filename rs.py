@@ -398,9 +398,27 @@ class ReservationStation(Module):
                 & (imm_array[update_index] == Bits(32)(255))
             )
 
+            is_sb_x0__1 = (
+                (memory_array[update_index] == Bits(2)(2))  # Store
+                & (read_mux(vk_array_d, update_index) == Bits(32)(0))  # rs2==0
+                & (read_mux(vj_array_d, update_index) == Bits(32)(0))  # rs1==0
+                & (mem_oper_size_array[update_index] == Bits(2)(0))  # byte
+                & (imm_array[update_index] == Bits(32)(0xFFFFFFFF))  # imm==-1
+            )
+
             with Condition(is_li_x10_255):
                 self.log(
                     "Main program executed LI x10 255, finish simulation",
+                )
+                self.print_stats(
+                    commit_counter, prediction_counter, prediction_correction_counter
+                )
+                log("{}", reg_file[10].bitcast(UInt(32)))
+                finish()
+
+            with Condition(is_sb_x0__1):
+                self.log(
+                    "Main program executed SB x0 -1, finish simulation",
                 )
                 self.print_stats(
                     commit_counter, prediction_counter, prediction_correction_counter
